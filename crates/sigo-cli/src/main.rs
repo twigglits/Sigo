@@ -1,4 +1,5 @@
 mod cli;
+mod commands;
 mod display;
 mod repl;
 
@@ -42,10 +43,7 @@ async fn main() -> Result<()> {
             println!("{}", toml::to_string_pretty(&config)?);
             Ok(())
         }
-        Some(Command::Doctor) => {
-            println!("(doctor: implemented in Task 12)");
-            Ok(())
-        }
+        Some(Command::Doctor) => commands::doctor::run(&config).await,
         Some(Command::Bench { bench: _ }) => {
             println!("(bench: implemented in Task 13)");
             Ok(())
