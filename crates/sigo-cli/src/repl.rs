@@ -86,9 +86,10 @@ pub async fn run(config: SigoConfig, verbose: bool) -> Result<()> {
     Ok(())
 }
 
-async fn handle_slash(rest: &str, state: &mut ReplState, _config: &SigoConfig) -> Result<bool> {
+async fn handle_slash(rest: &str, state: &mut ReplState, config: &SigoConfig) -> Result<bool> {
     let mut parts = rest.split_whitespace();
     let cmd = parts.next().unwrap_or("");
+    let args: Vec<&str> = parts.collect();
     match cmd {
         "quit" | "exit" => return Ok(false),
         "help" => print_help(),
@@ -100,7 +101,88 @@ async fn handle_slash(rest: &str, state: &mut ReplState, _config: &SigoConfig) -
             state.orchestrator.reset();
             println!("conversation reset (new session id = {})", state.orchestrator.session_id);
         }
-        "bench" => println!("(/bench summary: implemented in Task 14)"),
+        "control-mode" => {
+            if let Some(arg) = args.first() {
+                match ControlMode::parse(arg) {
+                    Some(m) => {
+                        state.orchestrator.config.control_mode = m;
+                        println!("control-mode: {}", arg);
+                    }
+                    None => println!("invalid control-mode (off | prompt-only | full)"),
+                }
+            } else {
+                println!("usage: /control-mode <off|prompt-only|full>");
+            }
+        }
+        "model" => {
+            if args.len() != 2 {
+                println!("usage: /model <translator|claude> <name>");
+            } else {
+                match args[0] {
+                    "translator" => {
+                        let new_translator: Arc<dyn Translator> = Arc::new(OllamaTranslator::new(
+                            &config.translator.endpoint,
+                            args[1],
+                            Duration::from_secs(config.translator.timeout_seconds),
+                        ));
+                        state.orchestrator.translator = new_translator;
+                        state.orchestrator.config.translator_model = args[1].to_string();
+                        println!("translator model: {}", args[1]);
+                    }
+                    "claude" => {
+                        let bk = state.orchestrator.config.backend_kind;
+                        let mut new_cfg = config.clone();
+                        new_cfg.claude.model = args[1].to_string();
+                        let new_backend = build_backend(bk, &new_cfg)?;
+                        state.orchestrator.backend = new_backend;
+                        state.orchestrator.config.claude_model = args[1].to_string();
+                        println!(
+                            "claude model: {} (note: prior cached tokens invalidated)",
+                            args[1]
+                        );
+                    }
+                    other => println!(
+                        "unknown /model target `{other}` (expected `translator` or `claude`)"
+                    ),
+                }
+            }
+        }
+        "backend" => {
+            if let Some(arg) = args.first() {
+                match parse_backend(arg) {
+                    Ok(kind) => {
+                        let new_backend = build_backend(kind, config)?;
+                        state.orchestrator.backend = new_backend;
+                        state.orchestrator.config.backend_kind = kind;
+                        println!("backend: {arg} (note: prior cached tokens invalidated)");
+                    }
+                    Err(e) => println!("{e}"),
+                }
+            } else {
+                println!("usage: /backend <api|claude-code>");
+            }
+        }
+        "bench" => {
+            let path = config.resolved_log_path();
+            match sigo_core::read_jsonl(&path) {
+                Ok(records) => {
+                    let session_id = state.orchestrator.session_id;
+                    let filtered: Vec<_> = records
+                        .into_iter()
+                        .filter(|r| r.session_id == session_id)
+                        .collect();
+                    let s = sigo_core::summarize(&filtered);
+                    println!(
+                        "[session {}] turns={}  zh-local-mean={:.1}  en-local-mean={:.1}",
+                        session_id, s.turn_count, s.mean_zh_prompt_local, s.mean_en_prompt_local
+                    );
+                    if let Some(v) = s.estimated_savings_pct {
+                        println!("            estimated savings: {:+.1}% vs EN", v);
+                    }
+                }
+                Err(e) => println!("read bench log: {e}"),
+            }
+        }
         other => println!("unknown command: /{other} (try /help)"),
     }
     Ok(true)
@@ -108,11 +190,15 @@ async fn handle_slash(rest: &str, state: &mut ReplState, _config: &SigoConfig) -
 
 fn print_help() {
     println!("commands:");
-    println!("  /help           show this list");
-    println!("  /quit, /exit    leave the REPL");
-    println!("  /verbose        toggle verbose display");
-    println!("  /reset          start a new session");
-    println!("  /bench          (TODO) summary of current session");
+    println!("  /help                       show this list");
+    println!("  /quit, /exit                leave the REPL");
+    println!("  /verbose                    toggle verbose display");
+    println!("  /reset                      start a new session");
+    println!("  /control-mode <m>           off | prompt-only | full");
+    println!("  /model translator <name>    swap translator model");
+    println!("  /model claude <name>        swap Claude model");
+    println!("  /backend <api|claude-code>  swap backend");
+    println!("  /bench                      print current-session summary");
 }
 
 pub fn parse_backend(s: &str) -> Result<BackendKind> {
