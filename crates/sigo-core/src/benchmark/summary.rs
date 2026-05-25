@@ -19,7 +19,11 @@ pub struct Summary {
 }
 
 pub fn read_jsonl(path: &Path) -> Result<Vec<TurnRecord>> {
-    let s = std::fs::read_to_string(path)?;
+    let s = match std::fs::read_to_string(path) {
+        Ok(s) => s,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(vec![]),
+        Err(e) => return Err(e.into()),
+    };
     let mut out = vec![];
     for (i, line) in s.lines().enumerate() {
         if line.trim().is_empty() {
@@ -164,6 +168,13 @@ mod tests {
             claude_total_ms: 0,
             turn_total_ms: 0,
         }
+    }
+
+    #[test]
+    fn missing_file_yields_empty_vec() {
+        let p = std::env::temp_dir().join(format!("nonexistent_{}.jsonl", uuid::Uuid::new_v4()));
+        let r = read_jsonl(&p).unwrap();
+        assert!(r.is_empty());
     }
 
     #[test]

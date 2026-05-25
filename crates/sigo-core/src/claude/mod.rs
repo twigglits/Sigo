@@ -26,4 +26,4 @@ pub trait ClaudeBackend: Send + Sync {
 
 pub use api::ApiBackend;
 pub use claude_code::ClaudeCodeBackend;
-pub use fakes::FakeBackend;
+pub use fakes::{FakeBackend, ScriptedItem};

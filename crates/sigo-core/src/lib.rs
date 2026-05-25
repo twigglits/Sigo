@@ -15,7 +15,7 @@ pub use benchmark::{
     read_jsonl, summarize, BenchmarkSink, EnglishControlRun, JsonlSink, MemorySink, Summary,
     TurnRecord, SCHEMA_VERSION,
 };
-pub use claude::{ApiBackend, ClaudeBackend, ClaudeCodeBackend, FakeBackend, ResponseChunk};
+pub use claude::{ApiBackend, ClaudeBackend, ClaudeCodeBackend, FakeBackend, ResponseChunk, ScriptedItem};
 pub use config::{BenchmarkConfig, ClaudeCodeConfig, ClaudeConfig, ReplConfig, SigoConfig, TranslatorConfig};
 pub use conversation::{BackendKind, Conversation, Direction, Message, Role, Usage};
 pub use error::{Result, SigoError};

@@ -439,6 +439,37 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn mid_stream_error_marks_turn_incomplete_and_holds_history() {
+        let translator = Arc::new(FakeTranslator::new());
+        translator.add_en_to_zh("ping", "乒");
+        translator.add_zh_to_en("乓", "Pong");
+
+        let backend = Arc::new(FakeBackend::new());
+        backend.enqueue_error_after_chunk("乓", "simulated network drop");
+
+        let sink = Arc::new(MemorySink::new());
+        let cfg = OrchestratorConfig {
+            backend_kind: BackendKind::Api,
+            claude_model: "claude-sonnet-4-6".into(),
+            translator_model: "fake".into(),
+            control_mode: ControlMode::PromptOnly,
+        };
+        let tokenizer: Arc<dyn Tokenizer> = Arc::new(ClaudeTokenizer::new().unwrap());
+        let mut orch = Orchestrator::new(cfg, translator, backend, tokenizer, sink.clone());
+
+        let mut out = CollectSink::default();
+        let record = orch.run_turn("ping", &mut out).await.unwrap();
+
+        // Critical invariants: turn marked incomplete, history unchanged, sink received the record.
+        assert!(record.incomplete, "turn should be marked incomplete after mid-stream error");
+        assert_eq!(orch.chinese_convo.messages.len(), 0, "conversation history must not advance on error");
+        assert_eq!(orch.english_convo.messages.len(), 0);
+        assert_eq!(orch.turn_index, 0, "turn_index must not increment on error");
+        assert_eq!(sink.snapshot().len(), 1, "incomplete turn is still recorded");
+        assert!(!record.turn_errors.is_empty(), "turn_errors should capture the failure");
+    }
+
+    #[tokio::test]
     async fn full_mode_records_english_control_run() {
         let translator = Arc::new(FakeTranslator::new());
         translator.add_en_to_zh("hi", "你好");

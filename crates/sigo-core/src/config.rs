@@ -128,19 +128,27 @@ impl SigoConfig {
     /// Load config with precedence: cwd `./sigo.toml` overrides `$XDG_CONFIG_HOME/sigo/config.toml`,
     /// both override built-in defaults. Missing files are not an error.
     pub fn load() -> Result<Self> {
-        let mut cfg = Self::default();
+        // Start with built-in defaults serialized to TOML, then layer files via TOML value merge.
+        let mut merged: toml::Value = toml::Value::try_from(Self::default())
+            .map_err(|e| SigoError::Config(format!("serializing defaults: {e}")))?;
+
         if let Some(xdg) = xdg_config_path() {
             if xdg.exists() {
                 let s = std::fs::read_to_string(&xdg)?;
-                cfg = parse(&s, &xdg)?;
+                let v: toml::Value = toml::from_str(&s)
+                    .map_err(|e| SigoError::Config(format!("{}: {e}", xdg.display())))?;
+                merge_into(&mut merged, v);
             }
         }
         let cwd_path = PathBuf::from("./sigo.toml");
         if cwd_path.exists() {
             let s = std::fs::read_to_string(&cwd_path)?;
-            cfg = parse(&s, &cwd_path)?;
+            let v: toml::Value = toml::from_str(&s)
+                .map_err(|e| SigoError::Config(format!("{}: {e}", cwd_path.display())))?;
+            merge_into(&mut merged, v);
         }
-        Ok(cfg)
+
+        merged.try_into().map_err(|e| SigoError::Config(format!("merging: {e}")))
     }
 
     pub fn load_from(path: &Path) -> Result<Self> {
@@ -170,6 +178,24 @@ fn xdg_config_path() -> Option<PathBuf> {
 
 fn parse(s: &str, path: &Path) -> Result<SigoConfig> {
     toml::from_str(s).map_err(|e| SigoError::Config(format!("{}: {e}", path.display())))
+}
+
+/// Recursively merge `src` into `dst`. Tables are merged field-by-field; non-table values are
+/// replaced. Missing keys in `src` leave `dst` untouched. New keys in `src` are added.
+fn merge_into(dst: &mut toml::Value, src: toml::Value) {
+    match (dst, src) {
+        (toml::Value::Table(dst_t), toml::Value::Table(src_t)) => {
+            for (k, v) in src_t {
+                match dst_t.get_mut(&k) {
+                    Some(existing) => merge_into(existing, v),
+                    None => { dst_t.insert(k, v); }
+                }
+            }
+        }
+        (dst_slot, src_v) => {
+            *dst_slot = src_v;
+        }
+    }
 }
 
 #[cfg(test)]
@@ -203,5 +229,21 @@ mod tests {
         let c = SigoConfig::default();
         let path = c.resolved_log_path();
         assert!(path.ends_with("sigo/turns.jsonl"));
+    }
+
+    #[test]
+    fn partial_overlay_preserves_unset_fields() {
+        let base = toml::Value::try_from(SigoConfig::default()).unwrap();
+        let overlay: toml::Value = toml::from_str(r#"
+            [translator]
+            model = "qwen3:14b"
+        "#).unwrap();
+        let mut merged = base;
+        merge_into(&mut merged, overlay);
+        let cfg: SigoConfig = merged.try_into().unwrap();
+        assert_eq!(cfg.translator.model, "qwen3:14b");
+        // The unset field should still hold the default:
+        assert_eq!(cfg.claude.backend, "api");
+        assert_eq!(cfg.translator.endpoint, "http://localhost:11434");
     }
 }

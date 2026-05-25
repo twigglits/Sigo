@@ -108,7 +108,31 @@ async fn check_api_key() -> Result<String> {
     if key.len() < 8 {
         anyhow::bail!("ANTHROPIC_API_KEY looks too short");
     }
-    Ok(format!("env var set ({} chars)", key.len()))
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(5))
+        .build()?;
+    let body = serde_json::json!({
+        "model": "claude-haiku-4-5",
+        "max_tokens": 1,
+        "messages": [{"role": "user", "content": "hi"}],
+    });
+    let resp = client.post("https://api.anthropic.com/v1/messages")
+        .header("x-api-key", &key)
+        .header("anthropic-version", "2023-06-01")
+        .header("content-type", "application/json")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("Anthropic ping failed: {e}"))?;
+    let status = resp.status();
+    if status.is_success() {
+        Ok(format!("env var set ({} chars), ping OK", key.len()))
+    } else if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
+        anyhow::bail!("API responded {status} — key may be invalid or revoked")
+    } else {
+        // Other errors (e.g. 400 from a model name change) — surface as a soft warning, not a hard fail.
+        Ok(format!("env var set ({} chars); Anthropic returned {} (auth still considered valid)", key.len(), status))
+    }
 }
 
 async fn check_claude_binary(binary: &str) -> Result<String> {

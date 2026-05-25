@@ -101,6 +101,17 @@ async fn handle_slash(rest: &str, state: &mut ReplState, config: &SigoConfig) ->
             state.orchestrator.reset();
             println!("conversation reset (new session id = {})", state.orchestrator.session_id);
         }
+        "save" => {
+            if let Some(arg) = args.first() {
+                let path = std::path::PathBuf::from(arg);
+                match save_session(&state.orchestrator, &path) {
+                    Ok(()) => println!("session saved to {}", path.display()),
+                    Err(e) => println!("save failed: {e}"),
+                }
+            } else {
+                println!("usage: /save <path>");
+            }
+        }
         "control-mode" => {
             if let Some(arg) = args.first() {
                 match ControlMode::parse(arg) {
@@ -194,6 +205,7 @@ fn print_help() {
     println!("  /quit, /exit                leave the REPL");
     println!("  /verbose                    toggle verbose display");
     println!("  /reset                      start a new session");
+    println!("  /save <path>                dump the current session to a markdown file");
     println!("  /control-mode <m>           off | prompt-only | full");
     println!("  /model translator <name>    swap translator model");
     println!("  /model claude <name>        swap Claude model");
@@ -222,4 +234,24 @@ pub fn build_backend(kind: BackendKind, cfg: &SigoConfig) -> Result<Arc<dyn Clau
                 .with_model(cfg.claude.model.clone()),
         )),
     }
+}
+
+fn save_session(orch: &Orchestrator, path: &std::path::Path) -> Result<()> {
+    use std::io::Write;
+    let mut file = std::fs::File::create(path)?;
+    writeln!(file, "# Sigo session {} — {} turns", orch.session_id, orch.turn_index)?;
+    writeln!(file)?;
+    for (i, (zh, en)) in orch.chinese_convo.messages.iter()
+        .zip(orch.english_convo.messages.iter())
+        .enumerate()
+    {
+        writeln!(file, "## Turn {} — {:?}", i / 2 + 1, zh.role)?;
+        writeln!(file, "### English")?;
+        writeln!(file, "{}", en.content)?;
+        writeln!(file)?;
+        writeln!(file, "### Chinese")?;
+        writeln!(file, "{}", zh.content)?;
+        writeln!(file)?;
+    }
+    Ok(())
 }
