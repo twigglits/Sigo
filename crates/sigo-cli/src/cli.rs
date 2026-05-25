@@ -1,0 +1,60 @@
+use clap::{Parser, Subcommand};
+use std::path::PathBuf;
+
+#[derive(Debug, Parser)]
+#[command(name = "sigo", version, about = "Sino-Anglo translator + Claude benchmark CLI")]
+pub struct Cli {
+    #[arg(long)]
+    pub config: Option<PathBuf>,
+
+    #[arg(long)]
+    pub backend: Option<String>,
+
+    #[arg(long)]
+    pub claude_model: Option<String>,
+
+    #[arg(long)]
+    pub translator_model: Option<String>,
+
+    #[arg(long)]
+    pub verbose: bool,
+
+    #[arg(long)]
+    pub control_mode: Option<String>,
+
+    #[command(subcommand)]
+    pub command: Option<Command>,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum Command {
+    /// Print the resolved configuration after all overrides.
+    ConfigShow,
+    /// Connectivity & setup checks.
+    Doctor,
+    /// Benchmark analysis subcommands.
+    Bench {
+        #[command(subcommand)]
+        bench: BenchCommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum BenchCommand {
+    Summary {
+        #[arg(long)]
+        session: Option<String>,
+        #[arg(long)]
+        last: Option<usize>,
+    },
+    Show {
+        session: String,
+        turn: u32,
+    },
+    Export {
+        #[arg(long, default_value = "jsonl")]
+        format: String,
+        #[arg(long)]
+        session: Option<String>,
+    },
+}
