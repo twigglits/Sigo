@@ -8,7 +8,7 @@ pub mod stream;
 pub mod tokenizer;
 pub mod translator;
 
-pub use claude::{ApiBackend, ClaudeBackend, FakeBackend, ResponseChunk};
+pub use claude::{ApiBackend, ClaudeBackend, ClaudeCodeBackend, FakeBackend, ResponseChunk};
 pub use conversation::{BackendKind, Conversation, Direction, Message, Role, Usage};
 pub use error::{Result, SigoError};
 pub use stream::{Segment, SentenceBuffer};

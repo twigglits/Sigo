@@ -5,6 +5,7 @@ use crate::conversation::{Conversation, Usage};
 use crate::error::Result;
 
 pub mod api;
+pub mod claude_code;
 pub mod fakes;
 
 #[derive(Debug, Clone)]
@@ -24,4 +25,5 @@ pub trait ClaudeBackend: Send + Sync {
 }
 
 pub use api::ApiBackend;
+pub use claude_code::ClaudeCodeBackend;
 pub use fakes::FakeBackend;
