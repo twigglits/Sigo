@@ -44,9 +44,6 @@ async fn main() -> Result<()> {
             Ok(())
         }
         Some(Command::Doctor) => commands::doctor::run(&config).await,
-        Some(Command::Bench { bench: _ }) => {
-            println!("(bench: implemented in Task 13)");
-            Ok(())
-        }
+        Some(Command::Bench { bench }) => commands::bench::run(&config, bench).await,
     }
 }

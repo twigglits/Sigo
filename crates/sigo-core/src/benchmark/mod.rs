@@ -1,9 +1,11 @@
 use crate::error::Result;
 
 pub mod jsonl_sink;
+pub mod summary;
 pub mod turn_record;
 
 pub use jsonl_sink::JsonlSink;
+pub use summary::{read_jsonl, summarize, Summary};
 pub use turn_record::{EnglishControlRun, TurnRecord, SCHEMA_VERSION};
 
 pub trait BenchmarkSink: Send + Sync {

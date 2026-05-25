@@ -11,7 +11,10 @@ pub mod stream;
 pub mod tokenizer;
 pub mod translator;
 
-pub use benchmark::{BenchmarkSink, EnglishControlRun, JsonlSink, MemorySink, TurnRecord, SCHEMA_VERSION};
+pub use benchmark::{
+    read_jsonl, summarize, BenchmarkSink, EnglishControlRun, JsonlSink, MemorySink, Summary,
+    TurnRecord, SCHEMA_VERSION,
+};
 pub use claude::{ApiBackend, ClaudeBackend, ClaudeCodeBackend, FakeBackend, ResponseChunk};
 pub use config::{BenchmarkConfig, ClaudeCodeConfig, ClaudeConfig, ReplConfig, SigoConfig, TranslatorConfig};
 pub use conversation::{BackendKind, Conversation, Direction, Message, Role, Usage};
