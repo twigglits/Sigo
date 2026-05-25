@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::Instant;
 use uuid::Uuid;
 
-use crate::benchmark::{BenchmarkSink, TurnRecord, SCHEMA_VERSION};
+use crate::benchmark::{BenchmarkSink, EnglishControlRun, TurnRecord, SCHEMA_VERSION};
 use crate::claude::{ClaudeBackend, ResponseChunk};
 use crate::conversation::{BackendKind, Conversation, Direction};
 use crate::error::Result;
@@ -133,6 +133,19 @@ impl Orchestrator {
         let english_cumulative_prompt_tokens_local =
             cumulative_tokens(self.tokenizer.as_ref(), &self.english_convo) + english_prompt_tokens_local;
 
+        // Step 2.5 (Full control mode only): launch parallel English Claude run.
+        let english_control_future: Option<tokio::task::JoinHandle<Result<EnglishControlRun>>> =
+            if self.config.control_mode == ControlMode::Full {
+                let backend = self.backend.clone();
+                let en_convo = self.english_convo.clone();
+                let en_prompt = english_prompt.to_string();
+                Some(tokio::spawn(async move {
+                    run_english_control(backend, en_convo, en_prompt).await
+                }))
+            } else {
+                None
+            };
+
         // Step 3: Open Claude stream — conversation history does NOT include the new prompt yet.
         let mut stream = self.backend
             .stream_turn(&self.chinese_convo, &chinese_prompt)
@@ -235,6 +248,16 @@ impl Orchestrator {
             self.english_convo.push_assistant(english_response_emitted.clone());
         }
 
+        let english_control_run = if let Some(handle) = english_control_future {
+            match handle.await {
+                Ok(Ok(r)) => Some(r),
+                Ok(Err(e)) => { errors.push(format!("control run: {e}")); None }
+                Err(e) => { errors.push(format!("control join: {e}")); None }
+            }
+        } else {
+            None
+        };
+
         // Step 7: Build + record TurnRecord (always, including incomplete turns).
         let record = TurnRecord {
             schema_version: SCHEMA_VERSION,
@@ -257,7 +280,7 @@ impl Orchestrator {
             cache_write_tokens_reported: cache_write,
             chinese_cumulative_prompt_tokens_local,
             english_cumulative_prompt_tokens_local,
-            english_control_run: None,
+            english_control_run,
             incomplete,
             turn_errors: errors,
             translation_in_ms,
@@ -325,6 +348,34 @@ async fn emit_segments(
     out.flush();
 }
 
+async fn run_english_control(
+    backend: Arc<dyn ClaudeBackend>,
+    en_convo: Conversation,
+    en_prompt: String,
+) -> Result<EnglishControlRun> {
+    let started = Instant::now();
+    let mut stream = backend.stream_turn(&en_convo, &en_prompt).await?;
+    let mut text = String::new();
+    let mut usage_input = 0u32;
+    let mut usage_output = 0u32;
+    while let Some(item) = stream.next().await {
+        match item? {
+            ResponseChunk::TextDelta(t) => text.push_str(&t),
+            ResponseChunk::Done { usage, .. } => {
+                usage_input = usage.input_tokens;
+                usage_output = usage.output_tokens;
+                break;
+            }
+        }
+    }
+    Ok(EnglishControlRun {
+        english_response: text,
+        prompt_tokens_reported: usage_input,
+        response_tokens_reported: usage_output,
+        duration_ms: started.elapsed().as_millis() as u64,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -385,5 +436,32 @@ mod tests {
         let r2 = orch.run_turn("hi", &mut out).await.unwrap();
         assert!(r2.chinese_cumulative_prompt_tokens_local > r1.chinese_cumulative_prompt_tokens_local);
         assert!(r2.english_cumulative_prompt_tokens_local > r1.english_cumulative_prompt_tokens_local);
+    }
+
+    #[tokio::test]
+    async fn full_mode_records_english_control_run() {
+        let translator = Arc::new(FakeTranslator::new());
+        translator.add_en_to_zh("hi", "你好");
+        translator.add_zh_to_en("你好。", "Hi.");
+        let backend = Arc::new(FakeBackend::new());
+        // The orchestrator turn:
+        backend.enqueue_simple("你好。", Usage { input_tokens: 4, output_tokens: 5, ..Default::default() });
+        // The parallel English control turn:
+        backend.enqueue_simple("Hi.", Usage { input_tokens: 6, output_tokens: 8, ..Default::default() });
+
+        let sink = Arc::new(MemorySink::new());
+        let cfg = OrchestratorConfig {
+            backend_kind: BackendKind::Api,
+            claude_model: "claude-sonnet-4-6".into(),
+            translator_model: "qwen3:14b".into(),
+            control_mode: ControlMode::Full,
+        };
+        let tokenizer: Arc<dyn Tokenizer> = Arc::new(ClaudeTokenizer::new().unwrap());
+        let mut orch = Orchestrator::new(cfg, translator, backend, tokenizer, sink.clone());
+        let mut out = CollectSink::default();
+        let record = orch.run_turn("hi", &mut out).await.unwrap();
+        let control = record.english_control_run.expect("control run captured");
+        assert_eq!(control.prompt_tokens_reported, 6);
+        assert_eq!(control.response_tokens_reported, 8);
     }
 }
