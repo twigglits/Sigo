@@ -207,6 +207,18 @@ mod tests {
     }
 
     #[test]
+    fn closing_fence_at_eof_emits_via_flush() {
+        let segs = collect_all("```\nfn x() {}\n```");
+        assert_eq!(segs, vec![Segment::Passthrough("```\nfn x() {}\n```".to_string())]);
+    }
+
+    #[test]
+    fn code_fence_preserves_language_info_string() {
+        let segs = collect_all("```python\nprint('hi')\n```\n");
+        assert_eq!(segs, vec![Segment::Passthrough("```python\nprint('hi')\n```\n".to_string())]);
+    }
+
+    #[test]
     fn multibyte_safe() {
         let mut buf = SentenceBuffer::new();
         let segs1 = buf.push("测");
