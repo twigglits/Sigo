@@ -1792,7 +1792,6 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 1.0.69",
- "tokenizers",
  "tokio",
  "tokio-stream",
  "toml",
