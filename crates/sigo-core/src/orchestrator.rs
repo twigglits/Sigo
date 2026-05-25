@@ -8,7 +8,7 @@ use uuid::Uuid;
 use crate::benchmark::{BenchmarkSink, TurnRecord, SCHEMA_VERSION};
 use crate::claude::{ClaudeBackend, ResponseChunk};
 use crate::conversation::{BackendKind, Conversation, Direction};
-use crate::error::{Result, SigoError};
+use crate::error::Result;
 use crate::stream::{Segment, SentenceBuffer};
 use crate::tokenizer::Tokenizer;
 use crate::translator::Translator;
@@ -324,10 +324,6 @@ async fn emit_segments(
     }
     out.flush();
 }
-
-// Suppress dead_code lint where SigoError used only for tracing in this module.
-#[allow(dead_code)]
-fn _force_use_sigoerror(e: SigoError) -> SigoError { e }
 
 #[cfg(test)]
 mod tests {
