@@ -3,6 +3,7 @@
 
 pub mod benchmark;
 pub mod claude;
+pub mod config;
 pub mod conversation;
 pub mod error;
 pub mod orchestrator;
@@ -12,6 +13,7 @@ pub mod translator;
 
 pub use benchmark::{BenchmarkSink, EnglishControlRun, JsonlSink, MemorySink, TurnRecord, SCHEMA_VERSION};
 pub use claude::{ApiBackend, ClaudeBackend, ClaudeCodeBackend, FakeBackend, ResponseChunk};
+pub use config::{BenchmarkConfig, ClaudeCodeConfig, ClaudeConfig, ReplConfig, SigoConfig, TranslatorConfig};
 pub use conversation::{BackendKind, Conversation, Direction, Message, Role, Usage};
 pub use error::{Result, SigoError};
 pub use orchestrator::{CollectSink, ControlMode, Orchestrator, OrchestratorConfig, OutputSink, StdoutSink};

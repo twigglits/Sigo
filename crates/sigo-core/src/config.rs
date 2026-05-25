@@ -1,0 +1,207 @@
+use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
+
+use crate::error::{Result, SigoError};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SigoConfig {
+    #[serde(default)]
+    pub translator: TranslatorConfig,
+    #[serde(default)]
+    pub claude: ClaudeConfig,
+    #[serde(default)]
+    pub benchmark: BenchmarkConfig,
+    #[serde(default)]
+    pub repl: ReplConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TranslatorConfig {
+    #[serde(default = "default_translator_provider")]
+    pub provider: String,
+    #[serde(default = "default_ollama_endpoint")]
+    pub endpoint: String,
+    #[serde(default = "default_translator_model")]
+    pub model: String,
+    #[serde(default = "default_translator_timeout")]
+    pub timeout_seconds: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClaudeConfig {
+    #[serde(default = "default_claude_backend")]
+    pub backend: String,
+    #[serde(default = "default_claude_model")]
+    pub model: String,
+    #[serde(default = "default_claude_max_tokens")]
+    pub max_tokens: u32,
+    #[serde(default)]
+    pub claude_code: ClaudeCodeConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClaudeCodeConfig {
+    #[serde(default = "default_claude_code_binary")]
+    pub binary: String,
+    #[serde(default)]
+    pub extra_args: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BenchmarkConfig {
+    #[serde(default)]
+    pub log_path: Option<PathBuf>,
+    #[serde(default = "default_control_mode")]
+    pub control_mode: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReplConfig {
+    #[serde(default)]
+    pub verbose: bool,
+    #[serde(default)]
+    pub history_file: Option<PathBuf>,
+}
+
+impl Default for TranslatorConfig {
+    fn default() -> Self {
+        Self {
+            provider: default_translator_provider(),
+            endpoint: default_ollama_endpoint(),
+            model: default_translator_model(),
+            timeout_seconds: default_translator_timeout(),
+        }
+    }
+}
+
+impl Default for ClaudeConfig {
+    fn default() -> Self {
+        Self {
+            backend: default_claude_backend(),
+            model: default_claude_model(),
+            max_tokens: default_claude_max_tokens(),
+            claude_code: ClaudeCodeConfig::default(),
+        }
+    }
+}
+
+impl Default for ClaudeCodeConfig {
+    fn default() -> Self {
+        Self { binary: default_claude_code_binary(), extra_args: vec![] }
+    }
+}
+
+impl Default for BenchmarkConfig {
+    fn default() -> Self {
+        Self { log_path: None, control_mode: default_control_mode() }
+    }
+}
+
+impl Default for ReplConfig {
+    fn default() -> Self {
+        Self { verbose: false, history_file: None }
+    }
+}
+
+impl Default for SigoConfig {
+    fn default() -> Self {
+        Self {
+            translator: TranslatorConfig::default(),
+            claude: ClaudeConfig::default(),
+            benchmark: BenchmarkConfig::default(),
+            repl: ReplConfig::default(),
+        }
+    }
+}
+
+fn default_translator_provider() -> String { "ollama".into() }
+fn default_ollama_endpoint() -> String { "http://localhost:11434".into() }
+fn default_translator_model() -> String { "qwen2.5:7b".into() }
+fn default_translator_timeout() -> u64 { 60 }
+fn default_claude_backend() -> String { "api".into() }
+fn default_claude_model() -> String { "claude-sonnet-4-6".into() }
+fn default_claude_max_tokens() -> u32 { 4096 }
+fn default_claude_code_binary() -> String { "claude".into() }
+fn default_control_mode() -> String { "prompt-only".into() }
+
+impl SigoConfig {
+    /// Load config with precedence: cwd `./sigo.toml` overrides `$XDG_CONFIG_HOME/sigo/config.toml`,
+    /// both override built-in defaults. Missing files are not an error.
+    pub fn load() -> Result<Self> {
+        let mut cfg = Self::default();
+        if let Some(xdg) = xdg_config_path() {
+            if xdg.exists() {
+                let s = std::fs::read_to_string(&xdg)?;
+                cfg = parse(&s, &xdg)?;
+            }
+        }
+        let cwd_path = PathBuf::from("./sigo.toml");
+        if cwd_path.exists() {
+            let s = std::fs::read_to_string(&cwd_path)?;
+            cfg = parse(&s, &cwd_path)?;
+        }
+        Ok(cfg)
+    }
+
+    pub fn load_from(path: &Path) -> Result<Self> {
+        let s = std::fs::read_to_string(path)?;
+        parse(&s, path)
+    }
+
+    /// Resolved log path: configured path, else `$XDG_DATA_HOME/sigo/turns.jsonl`.
+    pub fn resolved_log_path(&self) -> PathBuf {
+        self.benchmark.log_path.clone().unwrap_or_else(|| {
+            let data = dirs::data_dir().unwrap_or_else(|| PathBuf::from("."));
+            data.join("sigo").join("turns.jsonl")
+        })
+    }
+
+    pub fn resolved_history_path(&self) -> PathBuf {
+        self.repl.history_file.clone().unwrap_or_else(|| {
+            let data = dirs::data_dir().unwrap_or_else(|| PathBuf::from("."));
+            data.join("sigo").join("history")
+        })
+    }
+}
+
+fn xdg_config_path() -> Option<PathBuf> {
+    dirs::config_dir().map(|d| d.join("sigo").join("config.toml"))
+}
+
+fn parse(s: &str, path: &Path) -> Result<SigoConfig> {
+    toml::from_str(s).map_err(|e| SigoError::Config(format!("{}: {e}", path.display())))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn defaults_load_cleanly() {
+        let c = SigoConfig::default();
+        assert_eq!(c.translator.provider, "ollama");
+        assert_eq!(c.claude.backend, "api");
+    }
+
+    #[test]
+    fn parses_partial_toml() {
+        let toml = r#"
+            [translator]
+            model = "qwen3:14b"
+            [claude]
+            backend = "claude-code"
+        "#;
+        let c: SigoConfig = toml::from_str(toml).unwrap();
+        assert_eq!(c.translator.model, "qwen3:14b");
+        assert_eq!(c.claude.backend, "claude-code");
+        // defaults preserved for unspecified fields
+        assert_eq!(c.translator.endpoint, "http://localhost:11434");
+    }
+
+    #[test]
+    fn resolved_log_path_uses_xdg_when_unset() {
+        let c = SigoConfig::default();
+        let path = c.resolved_log_path();
+        assert!(path.ends_with("sigo/turns.jsonl"));
+    }
+}
