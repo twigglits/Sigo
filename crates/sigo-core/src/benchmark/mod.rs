@@ -2,11 +2,13 @@ use crate::error::Result;
 
 pub mod corpus;
 pub mod jsonl_sink;
+pub mod run_report;
 pub mod summary;
 pub mod turn_record;
 
 pub use corpus::{load_corpus, load_default_corpus, CorpusEntry, CorpusLoadError};
 pub use jsonl_sink::JsonlSink;
+pub use run_report::{build_csv, build_markdown, summarize_run, RunReport, RunSummary};
 pub use summary::{read_jsonl, summarize, Summary};
 pub use turn_record::{EnglishControlRun, TurnRecord, SCHEMA_VERSION};
 
