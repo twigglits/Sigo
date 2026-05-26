@@ -29,3 +29,4 @@ claude-tokenizer = "0.3.0"
 
 [dev-dependencies]
 insta.workspace = true
+tempfile = "3"

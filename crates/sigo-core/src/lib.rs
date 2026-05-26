@@ -12,8 +12,8 @@ pub mod tokenizer;
 pub mod translator;
 
 pub use benchmark::{
-    read_jsonl, summarize, BenchmarkSink, EnglishControlRun, JsonlSink, MemorySink, Summary,
-    TurnRecord, SCHEMA_VERSION,
+    load_corpus, load_default_corpus, read_jsonl, summarize, BenchmarkSink, CorpusEntry,
+    CorpusLoadError, EnglishControlRun, JsonlSink, MemorySink, Summary, TurnRecord, SCHEMA_VERSION,
 };
 pub use claude::{ApiBackend, ClaudeBackend, ClaudeCodeBackend, FakeBackend, ResponseChunk, ScriptedItem};
 pub use config::{BenchmarkConfig, ClaudeCodeConfig, ClaudeConfig, ReplConfig, SigoConfig, TranslatorConfig};
