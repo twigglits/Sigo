@@ -22,7 +22,7 @@ pub struct RunOptions {
 }
 
 pub type TranslatorBuilder = Arc<dyn Fn() -> Arc<dyn Translator> + Send + Sync>;
-pub type BackendBuilder = Arc<dyn Fn() -> Arc<dyn ClaudeBackend> + Send + Sync>;
+pub type BackendBuilder = Arc<dyn Fn() -> Result<Arc<dyn ClaudeBackend>> + Send + Sync>;
 
 pub async fn run(cfg: &SigoConfig, opts: RunOptions) -> Result<()> {
     let backend_kind = parse_backend_kind(&cfg.claude.backend)?;
@@ -36,7 +36,7 @@ pub async fn run(cfg: &SigoConfig, opts: RunOptions) -> Result<()> {
     });
     let cfg_for_be = cfg.clone();
     let backend_builder: BackendBuilder = Arc::new(move || {
-        build_backend(backend_kind, &cfg_for_be).expect("backend_builder")
+        build_backend(backend_kind, &cfg_for_be)
     });
     run_with_builders(cfg, opts, backend_kind, translator_builder, backend_builder).await
 }
@@ -91,7 +91,8 @@ pub async fn run_with_builders(
     for (i, entry) in corpus.iter().enumerate() {
         // Fresh translator + fresh backend per prompt so each prompt is turn-0 of its own session.
         let translator = translator_builder();
-        let backend = backend_builder();
+        let backend = backend_builder()
+            .with_context(|| format!("build backend for prompt {} ({})", i + 1, entry.category))?;
         let mut orch = Orchestrator::new(
             OrchestratorConfig {
                 backend_kind,
@@ -114,14 +115,17 @@ pub async fn run_with_builders(
             }
             Err(e) => {
                 n_failed += 1;
-                let handle = errors_handle.get_or_insert_with(|| {
-                    std::fs::OpenOptions::new()
-                        .create(true)
-                        .append(true)
-                        .open(&errors_path)
-                        .expect("open errors.jsonl")
-                });
-                write_error_line(handle, i, entry, "claude_open_or_translator", &e.to_string())?;
+                if errors_handle.is_none() {
+                    errors_handle = Some(
+                        std::fs::OpenOptions::new()
+                            .create(true)
+                            .append(true)
+                            .open(&errors_path)
+                            .with_context(|| format!("open {}", errors_path.display()))?,
+                    );
+                }
+                let handle = errors_handle.as_mut().expect("errors_handle just initialised");
+                write_error_line(handle, i + 1, entry, "claude_open_or_translator", &e.to_string())?;
                 eprintln!(
                     "[{}/{}] {} · FAILED: {}",
                     i + 1,
