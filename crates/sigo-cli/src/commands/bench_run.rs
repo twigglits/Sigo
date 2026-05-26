@@ -25,6 +25,7 @@ pub type TranslatorBuilder = Arc<dyn Fn() -> Arc<dyn Translator> + Send + Sync>;
 pub type BackendBuilder = Arc<dyn Fn() -> Result<Arc<dyn ClaudeBackend>> + Send + Sync>;
 
 pub async fn run(cfg: &SigoConfig, opts: RunOptions) -> Result<()> {
+    // Validate backend early so a typo doesn't slip through builders.
     let backend_kind = parse_backend_kind(&cfg.claude.backend)?;
     let cfg_for_tx = cfg.clone();
     let translator_builder: TranslatorBuilder = Arc::new(move || {
@@ -38,18 +39,27 @@ pub async fn run(cfg: &SigoConfig, opts: RunOptions) -> Result<()> {
     let backend_builder: BackendBuilder = Arc::new(move || {
         build_backend(backend_kind, &cfg_for_be)
     });
-    run_with_builders(cfg, opts, backend_kind, translator_builder, backend_builder).await
+    run_with_builders(cfg, opts, translator_builder, backend_builder).await
 }
 
 pub async fn run_with_builders(
     cfg: &SigoConfig,
     opts: RunOptions,
-    backend_kind: BackendKind,
     translator_builder: TranslatorBuilder,
     backend_builder: BackendBuilder,
 ) -> Result<()> {
+    let backend_kind = parse_backend_kind(&cfg.claude.backend)?;
+
+    // Pre-flight: catch backend misconfiguration (e.g. missing ANTHROPIC_API_KEY) before the loop
+    // does setup work that the user would then have to undo.
+    backend_builder()
+        .context("pre-flight: failed to construct backend (check config and env vars)")?;
+
     let corpus = load_corpus(opts.corpus_path.as_deref())
         .map_err(|e| anyhow::anyhow!("corpus load: {e}"))?;
+    if let Some(0) = opts.limit {
+        anyhow::bail!("--limit must be at least 1");
+    }
     let corpus: Vec<CorpusEntry> = match opts.limit {
         Some(n) => corpus.into_iter().take(n).collect(),
         None => corpus,

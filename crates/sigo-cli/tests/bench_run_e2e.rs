@@ -3,9 +3,7 @@ use std::sync::Arc;
 use sigo_cli::commands::bench_run::{
     run_with_builders, BackendBuilder, RunOptions, TranslatorBuilder,
 };
-use sigo_core::{
-    BackendKind, ClaudeBackend, FakeBackend, FakeTranslator, SigoConfig, Translator, Usage,
-};
+use sigo_core::{ClaudeBackend, FakeBackend, FakeTranslator, SigoConfig, Translator, Usage};
 use tempfile::TempDir;
 
 fn make_config(jsonl_path: std::path::PathBuf) -> SigoConfig {
@@ -80,7 +78,7 @@ async fn happy_path_three_prompts_two_categories() {
         limit: None,
         out_dir: Some(out_dir.clone()),
     };
-    run_with_builders(&cfg, opts, BackendKind::Api, translator_builder, backend_builder)
+    run_with_builders(&cfg, opts, translator_builder, backend_builder)
         .await
         .expect("runner should succeed");
 
@@ -144,7 +142,7 @@ async fn translator_failure_skips_prompt_and_logs_to_errors_jsonl() {
         limit: None,
         out_dir: Some(out_dir.clone()),
     };
-    run_with_builders(&cfg, opts, BackendKind::Api, translator_builder, backend_builder)
+    run_with_builders(&cfg, opts, translator_builder, backend_builder)
         .await
         .expect("runner should not abort on per-prompt failure");
 
@@ -202,7 +200,7 @@ async fn mid_stream_claude_error_marks_incomplete_not_failed() {
         limit: None,
         out_dir: Some(out_dir.clone()),
     };
-    run_with_builders(&cfg, opts, BackendKind::Api, translator_builder, backend_builder)
+    run_with_builders(&cfg, opts, translator_builder, backend_builder)
         .await
         .expect("runner should not abort on incomplete turn");
 
