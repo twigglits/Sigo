@@ -41,8 +41,7 @@ pub fn load_corpus(path: Option<&Path>) -> Result<Vec<CorpusEntry>, CorpusLoadEr
 
 fn looks_like_jsonl(raw: &[u8]) -> bool {
     raw.iter()
-        .skip_while(|b| b.is_ascii_whitespace())
-        .next()
+        .find(|b| !b.is_ascii_whitespace())
         .map(|b| *b == b'{')
         .unwrap_or(false)
 }
