@@ -1,0 +1,30 @@
+{"category":"coding-short","prompt":"Write a Python function that reverses a string in place."}
+{"category":"coding-short","prompt":"Write a Rust function that returns the nth Fibonacci number using memoisation."}
+{"category":"coding-short","prompt":"Write a SQL query that finds the top 5 customers by total order value."}
+{"category":"coding-short","prompt":"Write a JavaScript function that debounces a callback by 300ms."}
+{"category":"coding-short","prompt":"Write a Bash one-liner that finds all .log files modified in the last 24 hours and prints their total size."}
+{"category":"coding-long","prompt":"Implement a thread-safe LRU cache in Rust with O(1) get and put. Use a HashMap plus a doubly linked list. Include unit tests covering eviction, update-on-get, and capacity boundaries."}
+{"category":"coding-long","prompt":"Design and implement a token-bucket rate limiter in Go. Support multiple buckets keyed by user id, configurable refill rate and burst, and concurrent-safe access. Include tests for the boundary between allowed and rejected requests."}
+{"category":"coding-long","prompt":"Write a Python script that reads a CSV of HTTP access logs, groups by status code per minute, and outputs a heatmap-friendly TSV. The script should stream the input rather than loading the whole file into memory."}
+{"category":"coding-long","prompt":"Implement a simple HTTP server in Rust using only the standard library that serves static files from a directory and supports HEAD, GET, and Range requests. Include integration tests using a real TCP listener."}
+{"category":"coding-long","prompt":"Write a TypeScript module that wraps fetch with automatic retries, exponential backoff with jitter, and a circuit breaker. Expose configuration as a single options object. Include tests using a mocked fetch."}
+{"category":"refactor","prompt":"Refactor this function to use early returns instead of nested ifs:\n```python\ndef process(user, item):\n    if user is not None:\n        if user.is_active:\n            if item is not None:\n                if item.in_stock:\n                    return item.price\n    return None\n```"}
+{"category":"refactor","prompt":"Rewrite this loop to use a list comprehension:\n```python\nresult = []\nfor x in items:\n    if x.active:\n        result.append(x.name.upper())\n```"}
+{"category":"refactor","prompt":"Extract the duplicated logic in these two Rust functions into a shared helper:\n```rust\nfn save_user(u: &User) -> Result<()> { validate(u)?; db::insert(u)?; audit::log(\"user_saved\")?; Ok(()) }\nfn save_org(o: &Org) -> Result<()> { validate(o)?; db::insert(o)?; audit::log(\"org_saved\")?; Ok(()) }\n```"}
+{"category":"refactor","prompt":"This class has 12 boolean flags in its constructor. Refactor it to use a builder pattern in Java, keeping the same public behaviour."}
+{"category":"debug","prompt":"This Python script throws `KeyError: 'name'` intermittently. The dict is populated from a JSON file. What are the three most likely causes and how would I verify each?\n```python\nimport json\nwith open('users.json') as f: data = json.load(f)\nfor u in data: print(u['name'])\n```"}
+{"category":"debug","prompt":"This Go HTTP handler leaks goroutines under load. Spot the bug:\n```go\nfunc handler(w http.ResponseWriter, r *http.Request) {\n    ch := make(chan string)\n    go func() { ch <- fetch(r.URL.Query().Get(\"q\")) }()\n    fmt.Fprintln(w, <-ch)\n}\n```"}
+{"category":"debug","prompt":"My Rust async test hangs forever. The function under test uses `tokio::time::sleep`. What's the most likely cause and the fix?"}
+{"category":"debug","prompt":"`SELECT COUNT(*) FROM orders WHERE created_at > NOW() - INTERVAL '7 days'` is returning 0 even though I know orders exist from this week. What's the first thing to check?"}
+{"category":"explain","prompt":"Explain how Rust's borrow checker prevents data races, in under 200 words. Use one short code example."}
+{"category":"explain","prompt":"Explain the difference between mutex contention and lock convoying in under 150 words."}
+{"category":"explain","prompt":"Explain how a B-tree index makes range queries fast, in under 180 words. No diagrams."}
+{"category":"explain","prompt":"Explain what 'eventual consistency' actually means in a distributed key-value store, in under 200 words, including one concrete failure mode."}
+{"category":"factual","prompt":"What's the practical difference between TCP and UDP for a real-time game server?"}
+{"category":"factual","prompt":"What is HSTS and which HTTP header sets it?"}
+{"category":"factual","prompt":"Which Linux syscall does `mmap` ultimately invoke and what does the 'PROT_WRITE | MAP_PRIVATE' combination guarantee?"}
+{"category":"factual","prompt":"What does the `EXPLAIN ANALYZE` output 'Buffers: shared hit=12 read=4' tell you about a Postgres query?"}
+{"category":"prose","prompt":"Write a 4-line haiku about debugging a memory leak at 3am."}
+{"category":"prose","prompt":"Write a 100-word internal memo from a tech lead announcing a 1-week migration freeze, explaining why and what teams should do instead."}
+{"category":"prose","prompt":"Write a 60-word product description for a Rust-based note-taking CLI aimed at terminal-native developers."}
+{"category":"prose","prompt":"Write a limerick about a junior developer's first encounter with a regex."}
