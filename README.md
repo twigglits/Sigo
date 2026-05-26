@@ -97,6 +97,10 @@ sigo config-show                  # resolved effective config
 sigo bench summary                # aggregate stats from the JSONL log
 sigo bench show <session> <turn>  # full record
 sigo bench export --format csv    # for notebook analysis
+sigo bench run                          # run a corpus end-to-end, write report
+sigo bench run --limit 5                # smoke run over the first 5 prompts
+sigo bench run --corpus my.jsonl        # use a custom prompt file
+sigo --backend api bench run --limit 3  # override backend via top-level flag
 ```
 
 ### REPL slash-commands
@@ -129,6 +133,27 @@ sigo bench export --format csv    # for notebook analysis
 
 The JSONL log is rolling and append-only at
 `$XDG_DATA_HOME/sigo/turns.jsonl`. Each line is one `TurnRecord`.
+
+### Scripted bench runs
+
+`sigo bench run` drives a corpus of prompts through the orchestrator with
+`control_mode=full` and writes a per-run report:
+
+- `$XDG_DATA_HOME/sigo/runs/<run-id>/report.md` — headline ZH vs EN
+  comparison and per-category breakdown.
+- `report.csv` next to it — one row per prompt for notebook analysis.
+- `errors.jsonl` — only created if some prompts failed.
+
+The bundled default corpus is 30 prompts across seven categories
+(coding-short, coding-long, refactor, debug, explain, factual, prose).
+Pass `--corpus <path>` for a custom JSONL (`{"category", "prompt"}`) or
+plain text (one prompt per line). `--limit N` runs only the first N for a
+smoke test.
+
+Each prompt is run as turn 0 of a fresh session so the reported `input_tokens`
+isolates the prompt's own cost. The `claude-code` backend's cached
+system-prompt scaffolding shows up under `cache_read_tokens_reported` and is
+reflected in the report's "Total input" row.
 
 ## Development
 
