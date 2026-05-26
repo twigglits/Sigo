@@ -209,7 +209,7 @@ pub fn build_csv(report: &RunReport) -> String {
     out.push_str("run_id,prompt_index,category,prompt,");
     out.push_str("zh_input_reported,zh_output_reported,zh_cache_read,zh_cache_write,zh_total_input,");
     out.push_str("en_input_reported,en_output_reported,en_cache_read,en_cache_write,en_total_input,");
-    out.push_str("zh_prompt_local,en_prompt_local,zh_response_local,zh_response_reported,");
+    out.push_str("zh_prompt_local,en_prompt_local,zh_response_local,");
     out.push_str("delta_input_pct,delta_total_input_pct,delta_output_pct,");
     out.push_str("translation_in_ms,translation_out_ms_total,claude_total_ms,turn_total_ms,");
     out.push_str("incomplete,errors\n");
@@ -232,7 +232,7 @@ pub fn build_csv(report: &RunReport) -> String {
         let do_ = if en_out > 0 { format!("{:+.2}", (zh_out as f64 - en_out as f64) / en_out as f64 * 100.0) } else { "".into() };
 
         let _ = writeln!(out,
-            "{run},{idx},{cat},{prompt},{zh_input},{zh_out},{zh_cr},{zh_cw},{zh_total},{en_input},{en_out},{en_cr},{en_cw},{en_total},{zhpl},{enpl},{zhrl},{zh_out},{di},{dt},{do_},{tin},{toutsum},{cmt},{ttm},{inc},{errs}",
+            "{run},{idx},{cat},{prompt},{zh_input},{zh_out},{zh_cr},{zh_cw},{zh_total},{en_input},{en_out},{en_cr},{en_cw},{en_total},{zhpl},{enpl},{zhrl},{di},{dt},{do_},{tin},{toutsum},{cmt},{ttm},{inc},{errs}",
             run = csv_quote(&report.summary.run_id),
             idx = i,
             cat = csv_quote(cat),
@@ -405,6 +405,34 @@ mod tests {
         assert!(lines[0].starts_with("run_id,prompt_index,category,prompt,"));
         assert!(lines[1].contains("rid,0,coding"));
         assert!(lines[2].contains("rid,1,prose"));
+    }
+
+    #[test]
+    fn build_csv_header_and_data_rows_have_matching_column_counts() {
+        let started = Utc.with_ymd_and_hms(2026, 5, 26, 12, 0, 0).unwrap();
+        let finished = Utc.with_ymd_and_hms(2026, 5, 26, 12, 1, 30).unwrap();
+        let rows = vec![
+            (rec("", 10, 8, 12, 200, 90000, 0, 18, 250, 90000, 0, false), "coding".to_string()),
+            (rec("", 6,  5,  7, 100, 89000, 0, 10, 150, 89000, 0, false), "prose".to_string()),
+        ];
+        let summary = summarize_run(
+            "rid".into(), started, finished, BackendKind::Api,
+            "m".into(), "t".into(), "src".into(), 2, 0, &rows,
+        );
+        let report = RunReport { summary, rows };
+        let csv = build_csv(&report);
+        let lines: Vec<&str> = csv.lines().collect();
+        let header_cols = lines[0].split(',').count();
+        for (i, line) in lines.iter().enumerate().skip(1) {
+            // csv_quote may have introduced commas inside quotes — split naively still works for
+            // these test inputs because the test rows don't contain commas in any field.
+            let row_cols = line.split(',').count();
+            assert_eq!(
+                row_cols, header_cols,
+                "row {} ({}) has {} columns but header has {}",
+                i, line, row_cols, header_cols
+            );
+        }
     }
 
     #[test]
