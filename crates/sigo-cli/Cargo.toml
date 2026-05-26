@@ -5,6 +5,10 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[lib]
+name = "sigo_cli"
+path = "src/lib.rs"
+
 [[bin]]
 name = "sigo"
 path = "src/main.rs"
@@ -24,3 +28,7 @@ toml.workspace = true
 dirs.workspace = true
 uuid.workspace = true
 reqwest.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { workspace = true }

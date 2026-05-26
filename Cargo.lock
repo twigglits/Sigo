@@ -2361,6 +2361,7 @@ name = "sigo-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "clap",
  "dirs",
  "reqwest",
@@ -2368,6 +2369,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sigo-core",
+ "tempfile",
  "tokio",
  "toml",
  "tracing",
@@ -2390,6 +2392,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror 1.0.69",
  "tokio",
  "tokio-stream",

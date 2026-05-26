@@ -1,11 +1,7 @@
-mod cli;
-mod commands;
-mod display;
-mod repl;
-
 use anyhow::{Context, Result};
 use clap::Parser;
-use cli::{Cli, Command};
+use sigo_cli::cli::{Cli, Command};
+use sigo_cli::{commands, repl};
 use sigo_core::SigoConfig;
 
 #[tokio::main(flavor = "multi_thread")]
