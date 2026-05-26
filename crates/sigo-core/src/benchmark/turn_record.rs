@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 use crate::conversation::BackendKind;
 
-pub const SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TurnRecord {
@@ -51,5 +51,9 @@ pub struct EnglishControlRun {
     pub english_response: String,
     pub prompt_tokens_reported: u32,
     pub response_tokens_reported: u32,
+    #[serde(default)]
+    pub cache_read_tokens_reported: Option<u32>,
+    #[serde(default)]
+    pub cache_write_tokens_reported: Option<u32>,
     pub duration_ms: u64,
 }

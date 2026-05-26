@@ -372,6 +372,8 @@ async fn run_english_control(
         english_response: text,
         prompt_tokens_reported: usage_input,
         response_tokens_reported: usage_output,
+        cache_read_tokens_reported: None,
+        cache_write_tokens_reported: None,
         duration_ms: started.elapsed().as_millis() as u64,
     })
 }
