@@ -57,4 +57,15 @@ pub enum BenchCommand {
         #[arg(long)]
         session: Option<String>,
     },
+    /// Drive a corpus of prompts through the orchestrator and write a report.
+    Run {
+        #[arg(long)]
+        corpus: Option<PathBuf>,
+        #[arg(long)]
+        label: Option<String>,
+        #[arg(long)]
+        limit: Option<usize>,
+        #[arg(long)]
+        out_dir: Option<PathBuf>,
+    },
 }

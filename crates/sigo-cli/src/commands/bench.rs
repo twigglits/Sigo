@@ -3,6 +3,7 @@ use sigo_core::{read_jsonl, summarize, SigoConfig, TurnRecord};
 use uuid::Uuid;
 
 use crate::cli::BenchCommand;
+use crate::commands::bench_run::{self, RunOptions};
 
 pub async fn run(config: &SigoConfig, cmd: BenchCommand) -> Result<()> {
     let path = config.resolved_log_path();
@@ -70,6 +71,9 @@ pub async fn run(config: &SigoConfig, cmd: BenchCommand) -> Result<()> {
                 }
                 other => anyhow::bail!("unknown format `{other}` (use `jsonl` or `csv`)"),
             }
+        }
+        BenchCommand::Run { corpus, label, limit, out_dir } => {
+            bench_run::run(config, RunOptions { corpus_path: corpus, label, limit, out_dir }).await?;
         }
     }
     Ok(())
