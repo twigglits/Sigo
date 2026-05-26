@@ -358,12 +358,16 @@ async fn run_english_control(
     let mut text = String::new();
     let mut usage_input = 0u32;
     let mut usage_output = 0u32;
+    let mut cache_read: Option<u32> = None;
+    let mut cache_write: Option<u32> = None;
     while let Some(item) = stream.next().await {
         match item? {
             ResponseChunk::TextDelta(t) => text.push_str(&t),
             ResponseChunk::Done { usage, .. } => {
                 usage_input = usage.input_tokens;
                 usage_output = usage.output_tokens;
+                cache_read = usage.cache_read;
+                cache_write = usage.cache_write;
                 break;
             }
         }
@@ -372,8 +376,8 @@ async fn run_english_control(
         english_response: text,
         prompt_tokens_reported: usage_input,
         response_tokens_reported: usage_output,
-        cache_read_tokens_reported: None,
-        cache_write_tokens_reported: None,
+        cache_read_tokens_reported: cache_read,
+        cache_write_tokens_reported: cache_write,
         duration_ms: started.elapsed().as_millis() as u64,
     })
 }
@@ -477,10 +481,14 @@ mod tests {
         translator.add_en_to_zh("hi", "你好");
         translator.add_zh_to_en("你好。", "Hi.");
         let backend = Arc::new(FakeBackend::new());
-        // The orchestrator turn:
-        backend.enqueue_simple("你好。", Usage { input_tokens: 4, output_tokens: 5, ..Default::default() });
-        // The parallel English control turn:
-        backend.enqueue_simple("Hi.", Usage { input_tokens: 6, output_tokens: 8, ..Default::default() });
+        backend.enqueue_simple(
+            "你好。",
+            Usage { input_tokens: 4, output_tokens: 5, cache_read: Some(100), cache_write: Some(50) },
+        );
+        backend.enqueue_simple(
+            "Hi.",
+            Usage { input_tokens: 6, output_tokens: 8, cache_read: Some(200), cache_write: Some(40) },
+        );
 
         let sink = Arc::new(MemorySink::new());
         let cfg = OrchestratorConfig {
@@ -493,8 +501,11 @@ mod tests {
         let mut orch = Orchestrator::new(cfg, translator, backend, tokenizer, sink.clone());
         let mut out = CollectSink::default();
         let record = orch.run_turn("hi", &mut out).await.unwrap();
+
         let control = record.english_control_run.expect("control run captured");
         assert_eq!(control.prompt_tokens_reported, 6);
         assert_eq!(control.response_tokens_reported, 8);
+        assert_eq!(control.cache_read_tokens_reported, Some(200));
+        assert_eq!(control.cache_write_tokens_reported, Some(40));
     }
 }
