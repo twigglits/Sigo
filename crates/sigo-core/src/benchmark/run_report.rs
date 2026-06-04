@@ -20,6 +20,9 @@ pub struct RunSummary {
     pub n_succeeded: usize,
     pub n_incomplete: usize,
     pub n_failed: usize,
+    /// Rows usable for the reported-token comparison: completed AND both arms
+    /// reported usage. The headline means are over THIS population, not all rows.
+    pub n_paired: usize,
 
     pub mean_zh_input_reported: f64,
     pub mean_en_input_reported: f64,
@@ -72,6 +75,14 @@ fn verdict(delta: Option<f64>) -> &'static str {
     }
 }
 
+/// A row is usable for the reported-token comparison only if it completed cleanly
+/// AND both arms actually reported usage. Including incomplete turns (whose
+/// reported tokens are absent → `unwrap_or(0)`) or turns missing an English
+/// control run silently biases the EN-vs-ZH means toward zero on one side.
+fn is_paired(r: &TurnRecord) -> bool {
+    !r.incomplete && r.chinese_prompt_tokens_reported.is_some() && r.english_control_run.is_some()
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn summarize_run(
     run_id: String,
@@ -85,15 +96,24 @@ pub fn summarize_run(
     n_failed: usize,
     rows: &[(TurnRecord, String)],
 ) -> RunSummary {
-    let n = rows.len() as f64;
     let n_succeeded = rows.iter().filter(|(r, _)| !r.incomplete).count();
     let n_incomplete = rows.iter().filter(|(r, _)| r.incomplete).count();
 
+    // Reported-token means are computed over PAIRED rows only (both arms reported),
+    // so incomplete/unpaired turns can't drag the EN-vs-ZH comparison via unwrap_or(0).
+    let paired: Vec<&TurnRecord> = rows
+        .iter()
+        .map(|(r, _)| r)
+        .filter(|r| is_paired(r))
+        .collect();
+    let n_paired = paired.len();
+    let np = n_paired as f64;
+
     let mean = |sel: &dyn Fn(&TurnRecord) -> f64| -> f64 {
-        if rows.is_empty() {
+        if paired.is_empty() {
             0.0
         } else {
-            rows.iter().map(|(r, _)| sel(r)).sum::<f64>() / n
+            paired.iter().map(|r| sel(r)).sum::<f64>() / np
         }
     };
 
@@ -131,7 +151,9 @@ pub fn summarize_run(
 
     let mut per_category: BTreeMap<String, Vec<&TurnRecord>> = BTreeMap::new();
     for (r, cat) in rows {
-        per_category.entry(cat.clone()).or_default().push(r);
+        if is_paired(r) {
+            per_category.entry(cat.clone()).or_default().push(r);
+        }
     }
     let per_category = per_category
         .into_iter()
@@ -165,6 +187,7 @@ pub fn summarize_run(
         n_succeeded,
         n_incomplete,
         n_failed,
+        n_paired,
         mean_zh_input_reported: mean(&zh_input),
         mean_en_input_reported: mean(&en_input),
         mean_zh_total_input: mean(&zh_total),
@@ -289,7 +312,7 @@ pub fn build_markdown(report: &RunReport) -> String {
     if s.n_failed > 0 {
         let _ = writeln!(out, "- {} prompts failed in translation or Claude. See `errors.jsonl` in the run directory.", s.n_failed);
     }
-    let _ = writeln!(out, "- Sample size is {} prompts; treat means as point estimates. The CSV is the input to your stats package of choice.", s.n_attempted);
+    let _ = writeln!(out, "- Headline means are over {} **paired** turns (completed, both arms reported); {} attempted, {} incomplete. The CSV has every row.", s.n_paired, s.n_attempted, s.n_incomplete);
     let _ = writeln!(out, "- ZH responses were translated back to EN by the local translator; the EN you'd read is not a like-for-like answer match to the EN control's response. The token-cost comparison is unaffected by this, but a quality comparison is not in scope.");
 
     out
@@ -450,6 +473,50 @@ mod tests {
         assert_eq!(verdict(Some(-5.01)), "ZH wins");
         assert_eq!(verdict(Some(5.01)), "EN wins");
         assert_eq!(verdict(None), "n/a");
+    }
+
+    #[test]
+    fn reported_means_exclude_incomplete_and_unpaired_rows() {
+        let started = Utc.with_ymd_and_hms(2026, 5, 26, 12, 0, 0).unwrap();
+        let finished = Utc.with_ymd_and_hms(2026, 5, 26, 12, 1, 30).unwrap();
+        // Two clean, paired rows — the only rows that should count.
+        let r1 = rec("", 10, 8, 12, 200, 0, 0, 18, 250, 0, 0, false);
+        let r2 = rec("", 14, 12, 16, 240, 0, 0, 22, 280, 0, 0, false);
+        // An incomplete row whose (absent → 0) tokens must NOT drag the means.
+        let r_incomplete = rec("", 99, 99, 0, 0, 0, 0, 0, 0, 0, 0, true);
+        // A completed row with no English control run cannot be paired → excluded.
+        let mut r_unpaired = rec("", 99, 99, 9999, 9999, 0, 0, 0, 0, 0, 0, false);
+        r_unpaired.english_control_run = None;
+        let rows = vec![
+            (r1, "coding".to_string()),
+            (r2, "coding".to_string()),
+            (r_incomplete, "coding".to_string()),
+            (r_unpaired, "coding".to_string()),
+        ];
+        let s = summarize_run(
+            "rid".into(),
+            started,
+            finished,
+            BackendKind::Api,
+            "m".into(),
+            "t".into(),
+            "src".into(),
+            4,
+            0,
+            &rows,
+        );
+        assert_eq!(s.n_paired, 2, "only the two clean paired rows are usable");
+        assert!(
+            (s.mean_zh_input_reported - (12.0 + 16.0) / 2.0).abs() < 1e-9,
+            "zh mean dragged by unpaired rows: {}",
+            s.mean_zh_input_reported
+        );
+        assert!(
+            (s.mean_en_input_reported - (18.0 + 22.0) / 2.0).abs() < 1e-9,
+            "en mean dragged by unpaired rows: {}",
+            s.mean_en_input_reported
+        );
+        assert_eq!(s.per_category["coding"].n, 2, "per-category is also paired");
     }
 
     #[test]

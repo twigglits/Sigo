@@ -32,5 +32,5 @@ expression: md
 ## Caveats
 
 - Reported `input_tokens` for the `claude-code` backend excludes cached system-prompt scaffolding (~tens of thousands of tokens per turn). The 'Total input' row above is the fair comparison.
-- Sample size is 2 prompts; treat means as point estimates. The CSV is the input to your stats package of choice.
+- Headline means are over 2 **paired** turns (completed, both arms reported); 2 attempted, 0 incomplete. The CSV has every row.
 - ZH responses were translated back to EN by the local translator; the EN you'd read is not a like-for-like answer match to the EN control's response. The token-cost comparison is unaffected by this, but a quality comparison is not in scope.
