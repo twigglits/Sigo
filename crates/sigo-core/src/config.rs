@@ -59,7 +59,7 @@ pub struct BenchmarkConfig {
     pub bootstrap_seed: u64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ReplConfig {
     #[serde(default)]
     pub verbose: bool,
@@ -110,12 +110,6 @@ impl Default for ClaudeCodeConfig {
 impl Default for BenchmarkConfig {
     fn default() -> Self {
         Self { log_path: None, control_mode: default_control_mode(), bootstrap_seed: default_bootstrap_seed() }
-    }
-}
-
-impl Default for ReplConfig {
-    fn default() -> Self {
-        Self { verbose: false, history_file: None }
     }
 }
 

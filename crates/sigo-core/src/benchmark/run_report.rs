@@ -265,6 +265,7 @@ mod tests {
     use crate::benchmark::EnglishControlRun;
     use chrono::TimeZone;
 
+    #[allow(clippy::too_many_arguments)]
     fn rec(
         category_marker_unused: &str,
         en_local: u32,

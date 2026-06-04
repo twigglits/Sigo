@@ -14,8 +14,11 @@ pub enum ScriptedItem {
     Error(String),
 }
 
+/// Queue of scripted turns; each turn is a list of timed scripted items.
+type ScriptQueue = Arc<Mutex<Vec<Vec<(ScriptedItem, Duration)>>>>;
+
 pub struct FakeBackend {
-    scripts: Arc<Mutex<Vec<Vec<(ScriptedItem, Duration)>>>>,
+    scripts: ScriptQueue,
 }
 
 impl FakeBackend {
