@@ -6,6 +6,7 @@ pub mod claude;
 pub mod config;
 pub mod conversation;
 pub mod error;
+pub mod eval;
 pub mod orchestrator;
 pub mod stream;
 pub mod tokenizer;
@@ -21,6 +22,7 @@ pub use claude::{ApiBackend, ClaudeBackend, ClaudeCodeBackend, FakeBackend, Resp
 pub use config::{BenchmarkConfig, ClaudeCodeConfig, ClaudeConfig, PricingConfig, ReplConfig, SigoConfig, TranslatorConfig};
 pub use conversation::{BackendKind, Conversation, Direction, Message, Role, Usage};
 pub use error::{Result, SigoError};
+pub use eval::{evaluate_answer, extract_code, Outcome};
 pub use orchestrator::{CollectSink, ControlMode, Orchestrator, OrchestratorConfig, OutputSink, StdoutSink};
 pub use stream::{Segment, SentenceBuffer};
 pub use tokenizer::{TokenizerProxy, Tokenizer};
