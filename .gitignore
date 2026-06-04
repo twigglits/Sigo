@@ -6,3 +6,14 @@ sigo.toml
 
 # Design/plan docs kept locally on device, not published
 docs/superpowers/
+
+# Unrelated scratch artifacts kept locally, not part of Sigo
+resilient-fetch/
+crates/sigo-notes/
+__pycache__/
+*.pyc
+/access_log_heatmap.py
+scripts/access_log_heatmap.py
+
+# Local docker-compose secrets
+.env
