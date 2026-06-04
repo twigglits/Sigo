@@ -1,0 +1,12 @@
+.git/
+target/
+**/target/
+node_modules/
+**/node_modules/
+__pycache__/
+**/__pycache__/
+*.pyc
+resilient-fetch/
+docs/superpowers/
+.env
+turns.jsonl
