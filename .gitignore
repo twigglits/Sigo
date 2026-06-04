@@ -3,3 +3,6 @@ target/
 .DS_Store
 turns.jsonl
 sigo.toml
+
+# Design/plan docs kept locally on device, not published
+docs/superpowers/

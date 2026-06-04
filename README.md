@@ -16,10 +16,6 @@ Two-crate Cargo workspace.
 - `crates/sigo-cli` — binary: `clap`-based CLI, `rustyline` REPL,
   config loader, and `bench` / `doctor` subcommands.
 
-See `docs/superpowers/specs/2026-05-25-sigo-design.md` for the full design
-and `docs/superpowers/plans/2026-05-25-sigo-v1.md` for the implementation
-plan.
-
 ## Requirements
 
 - Rust 1.75+
