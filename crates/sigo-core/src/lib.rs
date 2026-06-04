@@ -22,7 +22,7 @@ pub use claude::{ApiBackend, ClaudeBackend, ClaudeCodeBackend, FakeBackend, Resp
 pub use config::{BenchmarkConfig, ClaudeCodeConfig, ClaudeConfig, PricingConfig, ReplConfig, SigoConfig, TranslatorConfig};
 pub use conversation::{BackendKind, Conversation, Direction, Message, Role, Usage};
 pub use error::{Result, SigoError};
-pub use eval::{evaluate_answer, extract_code, Outcome};
+pub use eval::{build_eval_csv, build_eval_markdown, evaluate_answer, extract_code, roundtrip_fidelity, summarize_eval, ArmCost, ArmEval, EvalSummary, Judge, OllamaJudge, Outcome, TaskEval};
 pub use orchestrator::{CollectSink, ControlMode, Orchestrator, OrchestratorConfig, OutputSink, StdoutSink};
 pub use stream::{Segment, SentenceBuffer};
 pub use tokenizer::{TokenizerProxy, Tokenizer};
