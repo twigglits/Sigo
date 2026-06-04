@@ -22,5 +22,5 @@ pub use conversation::{BackendKind, Conversation, Direction, Message, Role, Usag
 pub use error::{Result, SigoError};
 pub use orchestrator::{CollectSink, ControlMode, Orchestrator, OrchestratorConfig, OutputSink, StdoutSink};
 pub use stream::{Segment, SentenceBuffer};
-pub use tokenizer::{ClaudeTokenizer, Tokenizer};
+pub use tokenizer::{TokenizerProxy, Tokenizer};
 pub use translator::{FakeTranslator, OllamaTranslator, Translator};

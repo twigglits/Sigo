@@ -1,6 +1,6 @@
 use anyhow::Result;
 use serde::Deserialize;
-use sigo_core::{ClaudeTokenizer, SigoConfig, Tokenizer};
+use sigo_core::{SigoConfig, TokenizerProxy, Tokenizer};
 use std::time::Duration;
 
 pub async fn run(config: &SigoConfig) -> Result<()> {
@@ -154,9 +154,9 @@ async fn check_claude_binary(binary: &str) -> Result<String> {
 }
 
 async fn check_tokenizer() -> Result<String> {
-    let t = ClaudeTokenizer::new()?;
+    let t = TokenizerProxy::new()?;
     let n = t.count_tokens("hello world")?;
-    Ok(format!("loaded, sample count = {n}"))
+    Ok(format!("{} loaded, sample count = {n}", TokenizerProxy::label()))
 }
 
 async fn check_log_writable(path: &std::path::Path) -> Result<String> {

@@ -388,7 +388,7 @@ mod tests {
     use crate::benchmark::MemorySink;
     use crate::claude::FakeBackend;
     use crate::conversation::Usage;
-    use crate::tokenizer::ClaudeTokenizer;
+    use crate::tokenizer::TokenizerProxy;
     use crate::translator::FakeTranslator;
 
     fn build(translator: Arc<FakeTranslator>, backend: Arc<FakeBackend>, sink: Arc<MemorySink>) -> Orchestrator {
@@ -398,7 +398,7 @@ mod tests {
             translator_model: "qwen3:14b".into(),
             control_mode: ControlMode::PromptOnly,
         };
-        let tokenizer: Arc<dyn Tokenizer> = Arc::new(ClaudeTokenizer::new().unwrap());
+        let tokenizer: Arc<dyn Tokenizer> = Arc::new(TokenizerProxy::new().unwrap());
         Orchestrator::new(cfg, translator, backend, tokenizer, sink)
     }
 
@@ -460,7 +460,7 @@ mod tests {
             translator_model: "fake".into(),
             control_mode: ControlMode::PromptOnly,
         };
-        let tokenizer: Arc<dyn Tokenizer> = Arc::new(ClaudeTokenizer::new().unwrap());
+        let tokenizer: Arc<dyn Tokenizer> = Arc::new(TokenizerProxy::new().unwrap());
         let mut orch = Orchestrator::new(cfg, translator, backend, tokenizer, sink.clone());
 
         let mut out = CollectSink::default();
@@ -497,7 +497,7 @@ mod tests {
             translator_model: "qwen3:14b".into(),
             control_mode: ControlMode::Full,
         };
-        let tokenizer: Arc<dyn Tokenizer> = Arc::new(ClaudeTokenizer::new().unwrap());
+        let tokenizer: Arc<dyn Tokenizer> = Arc::new(TokenizerProxy::new().unwrap());
         let mut orch = Orchestrator::new(cfg, translator, backend, tokenizer, sink.clone());
         let mut out = CollectSink::default();
         let record = orch.run_turn("hi", &mut out).await.unwrap();

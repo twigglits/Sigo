@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use sigo_core::{
     build_csv, build_markdown, load_corpus, summarize_run, BackendKind, BenchmarkSink,
-    ClaudeBackend, ClaudeTokenizer, ControlMode, CorpusEntry, JsonlSink, OllamaTranslator,
+    ClaudeBackend, TokenizerProxy, ControlMode, CorpusEntry, JsonlSink, OllamaTranslator,
     Orchestrator, OrchestratorConfig, OutputSink, RunReport, SigoConfig, Tokenizer, Translator,
     TurnRecord,
 };
@@ -74,7 +74,7 @@ pub async fn run_with_builders(
         .with_context(|| format!("create out_dir {}", out_dir.display()))?;
 
     let tokenizer: Arc<dyn Tokenizer> = Arc::new(
-        ClaudeTokenizer::new().context("failed to load bundled Claude tokenizer JSON")?,
+        TokenizerProxy::new().context("failed to initialize o200k_base proxy tokenizer")?,
     );
     let sink: Arc<dyn BenchmarkSink> = Arc::new(
         JsonlSink::open(cfg.resolved_log_path()).context("failed to open benchmark log")?,

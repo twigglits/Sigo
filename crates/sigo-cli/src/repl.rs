@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use sigo_core::{
-    ApiBackend, BackendKind, BenchmarkSink, ClaudeBackend, ClaudeCodeBackend, ClaudeTokenizer,
+    ApiBackend, BackendKind, BenchmarkSink, ClaudeBackend, ClaudeCodeBackend, TokenizerProxy,
     ControlMode, JsonlSink, OllamaTranslator, Orchestrator, OrchestratorConfig, SigoConfig,
     StdoutSink, Tokenizer, Translator,
 };
@@ -28,7 +28,7 @@ pub async fn run(config: SigoConfig, verbose: bool) -> Result<()> {
     let backend: Arc<dyn ClaudeBackend> = build_backend(backend_kind, &config)?;
 
     let tokenizer: Arc<dyn Tokenizer> = Arc::new(
-        ClaudeTokenizer::new().context("failed to load bundled Claude tokenizer JSON")?,
+        TokenizerProxy::new().context("failed to initialize o200k_base proxy tokenizer")?,
     );
 
     let sink: Arc<dyn BenchmarkSink> = Arc::new(

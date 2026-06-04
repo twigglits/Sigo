@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 use sigo_core::{
-    BackendKind, ClaudeTokenizer, CollectSink, ControlMode, FakeBackend, FakeTranslator,
+    BackendKind, TokenizerProxy, CollectSink, ControlMode, FakeBackend, FakeTranslator,
     MemorySink, Orchestrator, OrchestratorConfig, ResponseChunk, Tokenizer, Usage,
 };
 
@@ -25,7 +25,7 @@ async fn multi_turn_session_advances_history_and_records_each_turn() {
         translator_model: "fake".into(),
         control_mode: ControlMode::PromptOnly,
     };
-    let tokenizer: Arc<dyn Tokenizer> = Arc::new(ClaudeTokenizer::new().unwrap());
+    let tokenizer: Arc<dyn Tokenizer> = Arc::new(TokenizerProxy::new().unwrap());
     let mut orch = Orchestrator::new(cfg, translator, backend, tokenizer, sink.clone());
 
     let mut out1 = CollectSink::default();
@@ -64,7 +64,7 @@ async fn stream_without_done_still_records_a_turn() {
         translator_model: "fake".into(),
         control_mode: ControlMode::PromptOnly,
     };
-    let tokenizer: Arc<dyn Tokenizer> = Arc::new(ClaudeTokenizer::new().unwrap());
+    let tokenizer: Arc<dyn Tokenizer> = Arc::new(TokenizerProxy::new().unwrap());
     let mut orch = Orchestrator::new(cfg, translator, backend, tokenizer, sink.clone());
 
     let mut out = CollectSink::default();

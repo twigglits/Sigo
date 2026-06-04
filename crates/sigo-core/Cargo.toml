@@ -25,8 +25,8 @@ tracing.workspace = true
 uuid.workspace = true
 chrono.workspace = true
 dirs.workspace = true
-claude-tokenizer = "0.3.0"
+tiktoken-rs = "0.12"
+tempfile = "3"
 
 [dev-dependencies]
 insta.workspace = true
-tempfile = "3"
