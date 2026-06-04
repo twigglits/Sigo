@@ -56,6 +56,26 @@ struct ChatRequest<'a> {
     model: &'a str,
     messages: Vec<Msg<'a>>,
     stream: bool,
+    options: JudgeOptions,
+    keep_alive: &'a str,
+}
+
+/// The judge's entire contract is "reply with ONLY a single integer", so it must
+/// be deterministic: `temperature 0` + a fixed `seed`. `keep_alive` mirrors the
+/// translator so the shared model is not evicted between calls.
+#[derive(Serialize)]
+struct JudgeOptions {
+    temperature: f32,
+    seed: u32,
+}
+
+impl Default for JudgeOptions {
+    fn default() -> Self {
+        Self {
+            temperature: 0.0,
+            seed: 0,
+        }
+    }
 }
 #[derive(Serialize)]
 struct Msg<'a> {
@@ -83,13 +103,11 @@ impl OllamaJudge {
             model: model.into(),
         }
     }
-}
 
-#[async_trait]
-impl Judge for OllamaJudge {
-    async fn score(&self, original: &str, candidate: &str) -> Result<u8> {
-        let user = format!("ORIGINAL:\n{original}\n\nCANDIDATE:\n{candidate}");
-        let body = ChatRequest {
+    /// Build the `/api/chat` body for a judge call. Extracted so the determinism
+    /// options are unit-testable without a live Ollama.
+    fn build_body<'a>(&'a self, user: &'a str) -> ChatRequest<'a> {
+        ChatRequest {
             model: &self.model,
             messages: vec![
                 Msg {
@@ -98,11 +116,21 @@ impl Judge for OllamaJudge {
                 },
                 Msg {
                     role: "user",
-                    content: &user,
+                    content: user,
                 },
             ],
             stream: false,
-        };
+            options: JudgeOptions::default(),
+            keep_alive: "30m",
+        }
+    }
+}
+
+#[async_trait]
+impl Judge for OllamaJudge {
+    async fn score(&self, original: &str, candidate: &str) -> Result<u8> {
+        let user = format!("ORIGINAL:\n{original}\n\nCANDIDATE:\n{candidate}");
+        let body = self.build_body(&user);
         let url = format!("{}/api/chat", self.endpoint.trim_end_matches('/'));
         let resp = self
             .client
@@ -138,5 +166,21 @@ mod tests {
         assert_eq!(parse_score("I'd say 10."), Some(10));
         assert_eq!(parse_score("11"), None);
         assert_eq!(parse_score("no number"), None);
+    }
+
+    #[test]
+    fn judge_request_is_deterministic_and_keeps_model_warm() {
+        let j = OllamaJudge::new(
+            "http://localhost:11434",
+            "qwen2.5:7b",
+            Duration::from_secs(60),
+        );
+        let json = serde_json::to_string(&j.build_body("ORIGINAL:\nx\n\nCANDIDATE:\ny")).unwrap();
+        assert!(json.contains("\"temperature\":0.0"), "body: {json}");
+        assert!(json.contains("\"seed\""), "missing seed: {json}");
+        assert!(
+            json.contains("\"keep_alive\""),
+            "missing keep_alive: {json}"
+        );
     }
 }
