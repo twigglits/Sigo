@@ -55,6 +55,8 @@ pub struct BenchmarkConfig {
     pub log_path: Option<PathBuf>,
     #[serde(default = "default_control_mode")]
     pub control_mode: String,
+    #[serde(default = "default_bootstrap_seed")]
+    pub bootstrap_seed: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -107,7 +109,7 @@ impl Default for ClaudeCodeConfig {
 
 impl Default for BenchmarkConfig {
     fn default() -> Self {
-        Self { log_path: None, control_mode: default_control_mode() }
+        Self { log_path: None, control_mode: default_control_mode(), bootstrap_seed: default_bootstrap_seed() }
     }
 }
 
@@ -128,6 +130,7 @@ impl Default for PricingConfig {
     }
 }
 
+fn default_bootstrap_seed() -> u64 { 0xC0DE }
 fn default_translator_provider() -> String { "ollama".into() }
 fn default_ollama_endpoint() -> String { "http://localhost:11434".into() }
 fn default_translator_model() -> String { "qwen2.5:7b".into() }

@@ -312,6 +312,17 @@ async fn run_coding_eval(
         anyhow::bail!("--samples > 1 (pass@k) is not yet implemented; use --samples 1");
     }
 
+    // Fail fast if the executor is missing — otherwise every task silently scores
+    // RuntimeError and the report looks like genuine all-fail measurement data.
+    let python_ok = std::process::Command::new("python3")
+        .arg("--version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    if !python_ok {
+        anyhow::bail!("python3 not found on PATH — required for `--eval coding` (run `sigo doctor` to check)");
+    }
+
     let run_id = build_run_id(opts.label.as_deref());
     let out_dir = opts.out_dir.clone().unwrap_or_else(|| default_run_dir(&run_id));
     std::fs::create_dir_all(&out_dir)
@@ -431,7 +442,7 @@ async fn run_coding_eval(
     if evals.is_empty() {
         anyhow::bail!("no tasks produced a usable record");
     }
-    let summary = summarize_eval(&evals, &cfg.pricing, 0xC0DE);
+    let summary = summarize_eval(&evals, &cfg.pricing, cfg.benchmark.bootstrap_seed);
     let md = build_eval_markdown(&run_id, &cfg.claude.backend, &cfg.claude.model, &summary);
     let csv = build_eval_csv(&evals, &cfg.pricing);
     let md_path = out_dir.join("eval_report.md");
