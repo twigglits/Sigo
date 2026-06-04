@@ -1,56 +1,99 @@
 # Sigo
 
-Sino-Anglo translation layer that routes English prompts through a local
-Ollama-hosted translator (Qwen / Gemma 3) into Chinese, sends them to
-Claude (Anthropic API or local `claude` CLI), and translates the
-streamed Chinese response back to English. Every turn is recorded so
-you can benchmark Claude's token cost on Chinese vs English prompts.
+Sino-Anglo translation layer for Claude. Sigo routes your English prompt through a
+local Ollama translator (Qwen / Gemma 3) into Chinese, sends the Chinese to Claude
+(Anthropic API or the local `claude` CLI), and streams the Chinese answer back
+through the translator into English. Every turn is recorded so you can benchmark
+Claude's token cost on Chinese vs English prompts.
 
-## Architecture
+If the translator is unreachable or the model isn't pulled, Sigo **stops with an
+actionable error** rather than silently sending English — the translation layer is
+the point, so it never degrades quietly.
 
-Two-crate Cargo workspace.
+## Quickstart
 
-- `crates/sigo-core` — library: traits (`Translator`, `ClaudeBackend`,
-  `Tokenizer`, `BenchmarkSink`), the per-turn orchestrator, the
-  sentence-buffer streaming transformer, and concrete adapters.
-- `crates/sigo-cli` — binary: `clap`-based CLI, `rustyline` REPL,
-  config loader, and `bench` / `doctor` subcommands.
+### 1. Docker Compose (recommended — zero local toolchain)
+
+Bundles Ollama, auto-pulls the translator model on first run, and starts Sigo.
+
+```bash
+git clone https://github.com/twigglits/Sigo && cd Sigo
+cp .env.example .env          # add your ANTHROPIC_API_KEY
+docker compose run --rm sigo                 # interactive REPL
+echo "explain this regex: ^\d{3}-\d{4}$" | docker compose run --rm -T sigo chat
+```
+
+First run pulls the Ollama image and the ~4.7 GB `qwen2.5:7b` model (one-time,
+persisted in a volume). NVIDIA GPU acceleration is opt-in:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml run --rm sigo
+```
+
+### 2. Install script (prebuilt binary)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/twigglits/Sigo/main/install.sh | sh
+```
+
+Installs the `sigo` binary for your platform (Linux x86_64/aarch64, macOS
+x86_64/aarch64) to `~/.local/bin`, verifying its checksum. Then install
+[Ollama](https://ollama.com), `ollama pull qwen2.5:7b`, set `ANTHROPIC_API_KEY`,
+and run `sigo doctor`.
+
+### 3. From source
+
+```bash
+cargo build --release        # binary at target/release/sigo
+```
+
+Requires Rust 1.75+. Same external setup as the install-script path.
 
 ## Requirements
 
-- Rust 1.75+
-- A running Ollama with a chat model pulled (e.g. `qwen2.5:7b`,
-  `qwen3:14b`, `gemma3:12b`).
+- A running Ollama with a chat model pulled (e.g. `qwen2.5:7b`, `qwen3:14b`,
+  `gemma3:12b`). The Docker path provides this for you.
 - One of:
-  - `ANTHROPIC_API_KEY` set in your environment (for `api` backend)
-  - The `claude` CLI on PATH and logged in (for `claude-code` backend)
+  - `ANTHROPIC_API_KEY` set in your environment (the `api` backend — default), or
+  - the `claude` CLI on PATH and logged in (the `claude-code` backend; native runs).
 
-## Install
+## First-run check
 
 ```bash
-cargo build --release
-# binary at target/release/sigo
+sigo doctor      # verifies Ollama, the model, your Claude auth, the tokenizer, and python3
 ```
 
-## First-run setup
+## Architecture
 
-1. Install + start Ollama: see https://ollama.com
-2. Pull a translation model:
-   ```bash
-   ollama pull qwen2.5:7b
-   ```
-3. Set your Anthropic key (skip if you're using `claude-code`):
-   ```bash
-   export ANTHROPIC_API_KEY=sk-...
-   ```
-4. Run `sigo doctor` to verify everything's reachable:
-   ```bash
-   ./target/release/sigo doctor
-   ```
+Two-crate Cargo workspace:
+
+- `crates/sigo-core` — library: traits (`Translator`, `ClaudeBackend`, `Tokenizer`,
+  `BenchmarkSink`), the per-turn orchestrator, the sentence-buffer streaming
+  transformer, and concrete adapters.
+- `crates/sigo-cli` — binary: the `clap` CLI, the `rustyline` REPL, the one-shot
+  `chat` command, config loading (files + `SIGO_*` env), and the `bench` / `doctor`
+  subcommands.
 
 ## Configuration
 
 Sigo reads `./sigo.toml` (cwd) overriding `$XDG_CONFIG_HOME/sigo/config.toml`.
+
+Any setting can also be overridden by an environment variable (highest precedence
+after CLI flags) — convenient for containers:
+
+| Env var                    | Setting                  |
+|----------------------------|--------------------------|
+| `SIGO_TRANSLATOR_ENDPOINT` | `translator.endpoint`    |
+| `SIGO_TRANSLATOR_MODEL`    | `translator.model`       |
+| `SIGO_CLAUDE_BACKEND`      | `claude.backend`         |
+| `SIGO_CLAUDE_MODEL`        | `claude.model`           |
+| `SIGO_CLAUDE_MAX_TOKENS`   | `claude.max_tokens`      |
+| `SIGO_CONTROL_MODE`        | `benchmark.control_mode` |
+| `SIGO_LOG_PATH`            | `benchmark.log_path`     |
+
+Precedence (low → high): built-in defaults < `$XDG_CONFIG_HOME/sigo/config.toml`
+< `./sigo.toml` < `SIGO_*` env vars < CLI flags. A starter config is in
+`sigo.toml.example`.
 
 ```toml
 [translator]
@@ -98,6 +141,8 @@ estimated savings vs the English baseline.
 ```bash
 sigo doctor                       # check setup
 sigo config-show                  # resolved effective config
+sigo chat "your prompt"           # one-shot: one turn, English answer to stdout
+echo "your prompt" | sigo chat    # same, reading the prompt from stdin
 sigo bench summary                # aggregate stats from the JSONL log
 sigo bench show <session> <turn>  # full record
 sigo bench export --format csv    # for notebook analysis
