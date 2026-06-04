@@ -28,3 +28,16 @@ uuid = { version = "1", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 dirs = "6"
 insta = { version = "1", features = ["json"] }
+
+# Thin LTO + a single codegen unit shrink and speed up the shipped binary (incl. the
+# musl release artifacts and Docker image); symbols are stripped. opt-level stays at the
+# default 3 — the tokenizer/SSE paths want it. panic="abort" is deliberately NOT set: a
+# panic in the long `bench run` parent should unwind so partial JSONL is flushed.
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
+
+# Keep stack traces useful while recompiling faster than full debuginfo.
+[profile.dev]
+debug = "line-tables-only"
