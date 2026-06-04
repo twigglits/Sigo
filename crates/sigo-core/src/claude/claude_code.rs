@@ -3,7 +3,7 @@ use futures::stream::BoxStream;
 use serde::Deserialize;
 use std::process::Stdio;
 use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::Mutex as AsyncMutex;
 use tokio_stream::wrappers::ReceiverStream;
@@ -119,12 +119,26 @@ impl ClaudeBackend for ClaudeCodeBackend {
             .stdout
             .take()
             .ok_or_else(|| SigoError::Backend("no stdout from child".into()))?;
+        // Take stderr too: it must be drained concurrently (an unread pipe can fill
+        // and deadlock the child) and is the only diagnostic when `claude` fails.
+        let stderr = child.stderr.take();
 
         let session_handle = self.session.clone();
         let (tx, rx) = tokio::sync::mpsc::channel::<Result<ResponseChunk>>(64);
 
         tokio::spawn(async move {
+            // Drain stderr in parallel with stdout so a chatty failure can't deadlock.
+            let stderr_task = tokio::spawn(async move {
+                let mut buf = String::new();
+                if let Some(se) = stderr {
+                    let _ = BufReader::new(se).read_to_string(&mut buf).await;
+                }
+                buf
+            });
+
             let mut reader = BufReader::new(stdout).lines();
+            let mut emitted_done = false;
+            let mut sent_err = false;
             loop {
                 match reader.next_line().await {
                     Ok(Some(line)) => {
@@ -133,6 +147,9 @@ impl ClaudeBackend for ClaudeCodeBackend {
                         }
                         match parse_line(&line, &session_handle).await {
                             Ok(Some(chunk)) => {
+                                if matches!(chunk, ResponseChunk::Done { .. }) {
+                                    emitted_done = true;
+                                }
                                 if tx.send(Ok(chunk)).await.is_err() {
                                     break;
                                 }
@@ -140,6 +157,7 @@ impl ClaudeBackend for ClaudeCodeBackend {
                             Ok(None) => {}
                             Err(e) => {
                                 let _ = tx.send(Err(e)).await;
+                                sent_err = true;
                                 break;
                             }
                         }
@@ -147,12 +165,34 @@ impl ClaudeBackend for ClaudeCodeBackend {
                     Ok(None) => break, // EOF
                     Err(e) => {
                         let _ = tx.send(Err(SigoError::from(e))).await;
+                        sent_err = true;
                         break;
                     }
                 }
             }
-            // Wait for the child to finish so it's reaped cleanly.
-            let _ = child.wait().await;
+            // Reap the child and capture its exit status. A non-zero exit with no
+            // `result` event (and no error already surfaced) would otherwise look
+            // like a silent empty success — turn it into a real backend error.
+            let status = child.wait().await;
+            let stderr_text = stderr_task.await.unwrap_or_default();
+            if !emitted_done && !sent_err {
+                let (failed, code) = match &status {
+                    Ok(s) => (!s.success(), s.code()),
+                    Err(_) => (true, None),
+                };
+                if failed {
+                    let code = code
+                        .map(|c| c.to_string())
+                        .unwrap_or_else(|| "unknown".to_string());
+                    let detail = stderr_text.trim();
+                    let msg = if detail.is_empty() {
+                        format!("claude exited with status {code} and produced no result")
+                    } else {
+                        format!("claude exited with status {code}: {detail}")
+                    };
+                    let _ = tx.send(Err(SigoError::Backend(msg))).await;
+                }
+            }
             // tx drops here, completing the consumer stream.
         });
 
@@ -264,5 +304,67 @@ mod tests {
         let line = r#"{"type":"unknown_future_event","data":42}"#;
         let parsed: CcEvent = serde_json::from_str(line).unwrap();
         assert!(matches!(parsed, CcEvent::Other));
+    }
+
+    #[cfg(unix)]
+    fn write_exec(path: &std::path::Path, body: &str) {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::write(path, body).unwrap();
+        let mut perms = std::fs::metadata(path).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(path, perms).unwrap();
+    }
+
+    #[cfg(unix)]
+    async fn collect(backend: &ClaudeCodeBackend) -> (Vec<String>, bool) {
+        use futures::StreamExt;
+        let mut stream = backend
+            .stream_turn(&Conversation::new(), "hi")
+            .await
+            .unwrap();
+        let mut texts = Vec::new();
+        let mut got_err = false;
+        while let Some(item) = stream.next().await {
+            match item {
+                Ok(ResponseChunk::TextDelta(t)) => texts.push(t),
+                Ok(ResponseChunk::Done { .. }) => {}
+                Err(_) => got_err = true,
+            }
+        }
+        (texts, got_err)
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn nonzero_exit_without_result_surfaces_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let script = dir.path().join("fake-claude");
+        // No stdout JSON at all, writes to stderr, exits non-zero.
+        write_exec(
+            &script,
+            "#!/bin/sh\necho 'boom: model unavailable' >&2\nexit 1\n",
+        );
+        let backend = ClaudeCodeBackend::new(script.to_str().unwrap().to_string());
+        let (texts, got_err) = collect(&backend).await;
+        assert!(texts.is_empty());
+        assert!(
+            got_err,
+            "a non-zero claude exit with no result event must surface an error, not a silent empty success"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn clean_result_event_yields_done_without_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let script = dir.path().join("fake-claude");
+        write_exec(
+            &script,
+            "#!/bin/sh\nprintf '%s\\n' '{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"hi\"}]}}'\nprintf '%s\\n' '{\"type\":\"result\",\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}'\nexit 0\n",
+        );
+        let backend = ClaudeCodeBackend::new(script.to_str().unwrap().to_string());
+        let (texts, got_err) = collect(&backend).await;
+        assert_eq!(texts, vec!["hi".to_string()]);
+        assert!(!got_err, "a clean exit with a result event must not error");
     }
 }
