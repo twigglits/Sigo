@@ -258,11 +258,11 @@ fn classify(code: Option<i32>, stdout: &str, stderr: &str) -> Outcome {
     if stderr.contains("AssertionError") {
         return Outcome::AssertFail;
     }
+    // Only true parse-time failures are "compile" errors. NameError / ImportError /
+    // ModuleNotFoundError are raised at run time and belong in the runtime bucket.
     if stderr.contains("SyntaxError")
         || stderr.contains("IndentationError")
-        || stderr.contains("NameError")
-        || stderr.contains("ImportError")
-        || stderr.contains("ModuleNotFoundError")
+        || stderr.contains("TabError")
     {
         return Outcome::CompileError;
     }
@@ -406,6 +406,28 @@ mod tests {
             )
             .await,
             Outcome::Pass
+        );
+    }
+
+    #[tokio::test]
+    async fn name_error_scores_runtime_not_compile() {
+        if !python3_available() {
+            eprintln!("skip: no python3");
+            return;
+        }
+        // Valid syntax, but an undefined name is referenced at run time — NameError is
+        // a runtime exception, not a parse/compile failure.
+        let code = "def add(a, b):\n    return a + undefined_name\n";
+        let test = "def check(candidate):\n    assert candidate(2, 3) == 5\n";
+        assert_eq!(
+            evaluate_answer(
+                &fence(code),
+                test,
+                "add",
+                std::time::Duration::from_secs(10)
+            )
+            .await,
+            Outcome::RuntimeError
         );
     }
 

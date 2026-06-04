@@ -217,7 +217,9 @@ pub fn summarize_eval(tasks: &[TaskEval], pricing: &PricingConfig, seed: u64) ->
 }
 
 fn verdict(ci_lo: f64, ci_hi: f64) -> &'static str {
-    if ci_lo <= 0.0 && ci_hi >= 0.0 {
+    if ci_lo.is_nan() || ci_hi.is_nan() {
+        "n/a (no data)"
+    } else if ci_lo <= 0.0 && ci_hi >= 0.0 {
         "wash (CI crosses 0)"
     } else if ci_hi < 0.0 {
         "ZH cheaper"
@@ -438,6 +440,15 @@ mod tests {
             s.cost_per_pass_ratio > 1.0,
             "ZH costs more per pass in the sample"
         );
+    }
+
+    #[test]
+    fn verdict_reports_no_data_for_nan_ci() {
+        // Empty data → bootstrap CI is NaN. The verdict must say so, not default to a winner.
+        assert_eq!(verdict(f64::NAN, f64::NAN), "n/a (no data)");
+        assert_eq!(verdict(-5.0, -1.0), "ZH cheaper");
+        assert_eq!(verdict(1.0, 5.0), "EN cheaper");
+        assert_eq!(verdict(-2.0, 3.0), "wash (CI crosses 0)");
     }
 
     #[test]
