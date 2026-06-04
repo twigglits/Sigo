@@ -77,6 +77,14 @@ control_mode = "prompt-only"       # off | prompt-only | full
 
 [repl]
 verbose = false
+
+[pricing]
+# Dollars per million tokens — used by `--eval coding` to compute marginal cost.
+# Defaults match Sonnet list price; override for other models or negotiated rates.
+input_per_mtok       = 3.0
+output_per_mtok      = 15.0
+cache_read_per_mtok  = 0.30
+cache_write_per_mtok = 3.75
 ```
 
 ## Usage
@@ -101,6 +109,12 @@ sigo bench run                          # run a corpus end-to-end, write report
 sigo bench run --limit 5                # smoke run over the first 5 prompts
 sigo bench run --corpus my.jsonl        # use a custom prompt file
 sigo --backend api bench run --limit 3  # override backend via top-level flag
+sigo bench run --eval coding            # objective coding benchmark (bundled HumanEval):
+                                        # runs each task through BOTH arms — direct English
+                                        # vs. the full EN→ZH→Claude→EN pipeline — and scores
+                                        # the model's code by executing it against the task's tests
+sigo bench run --eval coding --limit 5  # smoke run over the first 5 tasks
+sigo bench run --eval coding --corpus my_humaneval.jsonl  # custom HumanEval-format corpus
 ```
 
 ### REPL slash-commands
@@ -154,6 +168,43 @@ Each prompt is run as turn 0 of a fresh session so the reported `input_tokens`
 isolates the prompt's own cost. The `claude-code` backend's cached
 system-prompt scaffolding shows up under `cache_read_tokens_reported` and is
 reflected in the report's "Total input" row.
+
+### Coding eval (`--eval coding`)
+
+`sigo bench run --eval coding` runs each task in the bundled HumanEval corpus (or
+a custom corpus with `--corpus`) through **both arms in parallel**: a direct English
+prompt and the full EN→ZH→Claude→EN pipeline. Each model response is scored by
+executing the generated Python against the task's test suite.
+
+**Outputs** written to `$XDG_DATA_HOME/sigo/runs/<run-id>/`:
+
+- `eval_report.md` — headline comparison table and correctness summary.
+- `eval_report.csv` — one row per task per arm for notebook analysis.
+
+**Metrics — three paired layers**, each with a bootstrap percentile 95% CI and a
+ZH win-rate:
+
+1. **Input tokens (proxy)** — local o200k\_base BPE counts. These are a **proxy**
+   for Claude's tokenizer, which is non-public. Treat them as directional estimates,
+   not authoritative numbers.
+2. **Input tokens (reported, uncached)** — the authoritative counts reported by
+   Claude's API for each live run. These are the numbers to trust.
+3. **Marginal dollar cost** (input + output tokens at configured rates). Does not
+   include cache read/write charges, which are asymmetric across the paired arms.
+
+**Correctness**: pass-rate per arm with Wilson 95% confidence intervals.
+**Cost per passing task**: mean marginal cost ÷ pass-rate (∞ if no tasks pass).
+
+**Round-trip fidelity**: a local Ollama judge scores EN→ZH→EN closeness on a
+0–10 scale. This is a diagnostic for translation quality, not a performance metric.
+
+**Known limitations and safety notes:**
+
+- `--samples` currently supports only `1` (pass@1). Higher values (pass@k) are
+  reserved but not yet implemented.
+- The eval executes model-generated Python locally via `python3`. Run an untrusted
+  corpus inside a VM or container. `python3` must be on PATH (verified by `sigo doctor`).
+- N is typically small; bootstrap CIs are indicative, not tight.
 
 ## Development
 

@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use crate::error::{Result, SigoError};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SigoConfig {
     #[serde(default)]
     pub translator: TranslatorConfig,
@@ -124,18 +124,6 @@ impl Default for PricingConfig {
             output_per_mtok: default_output_per_mtok(),
             cache_read_per_mtok: default_cache_read_per_mtok(),
             cache_write_per_mtok: default_cache_write_per_mtok(),
-        }
-    }
-}
-
-impl Default for SigoConfig {
-    fn default() -> Self {
-        Self {
-            translator: TranslatorConfig::default(),
-            claude: ClaudeConfig::default(),
-            benchmark: BenchmarkConfig::default(),
-            repl: ReplConfig::default(),
-            pricing: PricingConfig::default(),
         }
     }
 }
