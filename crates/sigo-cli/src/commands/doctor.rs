@@ -1,5 +1,4 @@
 use anyhow::Result;
-use serde::Deserialize;
 use sigo_core::{SigoConfig, TokenizerProxy, Tokenizer};
 use std::time::Duration;
 
@@ -15,11 +14,11 @@ pub async fn run(config: &SigoConfig) -> Result<()> {
 
     all_ok &= check(
         "ollama reachable",
-        check_ollama_reachable(&config.translator.endpoint).await,
+        super::checks::ollama_reachable(&config.translator.endpoint).await,
     );
     all_ok &= check(
         "translator model present",
-        check_ollama_model(&config.translator.endpoint, &config.translator.model).await,
+        super::checks::ollama_has_model(&config.translator.endpoint, &config.translator.model).await,
     );
 
     match config.claude.backend.as_str() {
@@ -65,41 +64,6 @@ fn check(label: &str, res: Result<String>) -> bool {
             println!("[FAIL] {label}: {e}");
             false
         }
-    }
-}
-
-async fn check_ollama_reachable(endpoint: &str) -> Result<String> {
-    let url = format!("{}/api/version", endpoint.trim_end_matches('/'));
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(3))
-        .build()?;
-    let resp = client.get(&url).send().await.map_err(|e| {
-        anyhow::anyhow!("can't reach {url}: {e} — is `ollama serve` running?")
-    })?;
-    Ok(format!("HTTP {}", resp.status()))
-}
-
-#[derive(Deserialize)]
-struct TagsResponse {
-    models: Vec<TagModel>,
-}
-
-#[derive(Deserialize)]
-struct TagModel {
-    name: String,
-}
-
-async fn check_ollama_model(endpoint: &str, model: &str) -> Result<String> {
-    let url = format!("{}/api/tags", endpoint.trim_end_matches('/'));
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(3))
-        .build()?;
-    let resp = client.get(&url).send().await?;
-    let tags: TagsResponse = resp.json().await?;
-    if tags.models.iter().any(|m| m.name == model) {
-        Ok(format!("found `{model}`"))
-    } else {
-        anyhow::bail!("model `{model}` not installed — run `ollama pull {model}`")
     }
 }
 
