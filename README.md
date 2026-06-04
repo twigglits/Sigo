@@ -1,5 +1,7 @@
 # Sigo
 
+[![CI](https://github.com/twigglits/Sigo/actions/workflows/ci.yml/badge.svg)](https://github.com/twigglits/Sigo/actions/workflows/ci.yml)
+
 Sino-Anglo translation layer for Claude. Sigo routes your English prompt through a
 local Ollama translator (Qwen / Gemma 3) into Chinese, sends the Chinese to Claude
 (Anthropic API or the local `claude` CLI), and streams the Chinese answer back
