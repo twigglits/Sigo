@@ -12,9 +12,10 @@ pub mod tokenizer;
 pub mod translator;
 
 pub use benchmark::{
-    build_csv, build_markdown, load_corpus, load_default_corpus, read_jsonl, summarize,
-    summarize_run, BenchmarkSink, CategoryStats, CorpusEntry, CorpusLoadError, EnglishControlRun,
-    JsonlSink, MemorySink, RunReport, RunSummary, Summary, TurnRecord, SCHEMA_VERSION,
+    build_csv, build_markdown, load_coding_corpus, load_default_coding_corpus, load_corpus,
+    load_default_corpus, read_jsonl, summarize, summarize_run, BenchmarkSink, CategoryStats,
+    CodingTask, CorpusEntry, CorpusLoadError, EnglishControlRun, JsonlSink, MemorySink, RunReport,
+    RunSummary, Summary, TurnRecord, SCHEMA_VERSION,
 };
 pub use claude::{ApiBackend, ClaudeBackend, ClaudeCodeBackend, FakeBackend, ResponseChunk, ScriptedItem};
 pub use config::{BenchmarkConfig, ClaudeCodeConfig, ClaudeConfig, PricingConfig, ReplConfig, SigoConfig, TranslatorConfig};
