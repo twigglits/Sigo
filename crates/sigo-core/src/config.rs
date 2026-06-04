@@ -169,12 +169,18 @@ impl SigoConfig {
             merge_into(&mut merged, v);
         }
 
-        merged.try_into().map_err(|e| SigoError::Config(format!("merging: {e}")))
+        let mut cfg: SigoConfig = merged
+            .try_into()
+            .map_err(|e| SigoError::Config(format!("merging: {e}")))?;
+        apply_env_overlay(&mut cfg, |k| std::env::var(k).ok())?;
+        Ok(cfg)
     }
 
     pub fn load_from(path: &Path) -> Result<Self> {
         let s = std::fs::read_to_string(path)?;
-        parse(&s, path)
+        let mut cfg = parse(&s, path)?;
+        apply_env_overlay(&mut cfg, |k| std::env::var(k).ok())?;
+        Ok(cfg)
     }
 
     /// Resolved log path: configured path, else `$XDG_DATA_HOME/sigo/turns.jsonl`.
@@ -191,6 +197,39 @@ impl SigoConfig {
             data.join("sigo").join("history")
         })
     }
+}
+
+/// Overlay recognized `SIGO_*` environment variables onto a config. `get` resolves a var
+/// name to its value (inject a fake map in tests; production passes `std::env::var(k).ok()`).
+/// Applied after file merge and before CLI flags, so env beats files but flags beat env.
+pub fn apply_env_overlay(
+    cfg: &mut SigoConfig,
+    get: impl Fn(&str) -> Option<String>,
+) -> Result<()> {
+    if let Some(v) = get("SIGO_TRANSLATOR_ENDPOINT") {
+        cfg.translator.endpoint = v;
+    }
+    if let Some(v) = get("SIGO_TRANSLATOR_MODEL") {
+        cfg.translator.model = v;
+    }
+    if let Some(v) = get("SIGO_CLAUDE_BACKEND") {
+        cfg.claude.backend = v;
+    }
+    if let Some(v) = get("SIGO_CLAUDE_MODEL") {
+        cfg.claude.model = v;
+    }
+    if let Some(v) = get("SIGO_CLAUDE_MAX_TOKENS") {
+        cfg.claude.max_tokens = v.parse().map_err(|_| {
+            SigoError::Config(format!("SIGO_CLAUDE_MAX_TOKENS must be a positive integer, got `{v}`"))
+        })?;
+    }
+    if let Some(v) = get("SIGO_CONTROL_MODE") {
+        cfg.benchmark.control_mode = v;
+    }
+    if let Some(v) = get("SIGO_LOG_PATH") {
+        cfg.benchmark.log_path = Some(PathBuf::from(v));
+    }
+    Ok(())
 }
 
 fn xdg_config_path() -> Option<PathBuf> {
@@ -281,5 +320,51 @@ mod tests {
         // The unset field should still hold the default:
         assert_eq!(cfg.claude.backend, "api");
         assert_eq!(cfg.translator.endpoint, "http://localhost:11434");
+    }
+
+    #[test]
+    fn env_overlay_sets_fields() {
+        use std::collections::HashMap;
+        let mut cfg = SigoConfig::default();
+        let env: HashMap<&str, &str> = [
+            ("SIGO_TRANSLATOR_ENDPOINT", "http://ollama:11434"),
+            ("SIGO_CLAUDE_BACKEND", "claude-code"),
+            ("SIGO_CLAUDE_MAX_TOKENS", "8192"),
+            ("SIGO_LOG_PATH", "/data/turns.jsonl"),
+        ]
+        .into_iter()
+        .collect();
+        apply_env_overlay(&mut cfg, |k| env.get(k).map(|s| s.to_string())).unwrap();
+        assert_eq!(cfg.translator.endpoint, "http://ollama:11434");
+        assert_eq!(cfg.claude.backend, "claude-code");
+        assert_eq!(cfg.claude.max_tokens, 8192);
+        assert_eq!(cfg.benchmark.log_path, Some(PathBuf::from("/data/turns.jsonl")));
+    }
+
+    #[test]
+    fn env_overlay_overrides_file_values() {
+        let mut cfg: SigoConfig = toml::from_str("[translator]\nmodel = \"qwen2.5:3b\"").unwrap();
+        apply_env_overlay(&mut cfg, |k| {
+            if k == "SIGO_TRANSLATOR_MODEL" { Some("qwen2.5:7b".to_string()) } else { None }
+        })
+        .unwrap();
+        assert_eq!(cfg.translator.model, "qwen2.5:7b");
+    }
+
+    #[test]
+    fn env_overlay_unset_leaves_defaults() {
+        let mut cfg = SigoConfig::default();
+        apply_env_overlay(&mut cfg, |_| None).unwrap();
+        assert_eq!(cfg.translator.model, "qwen2.5:7b");
+        assert_eq!(cfg.claude.backend, "api");
+    }
+
+    #[test]
+    fn env_overlay_bad_max_tokens_errors() {
+        let mut cfg = SigoConfig::default();
+        let res = apply_env_overlay(&mut cfg, |k| {
+            if k == "SIGO_CLAUDE_MAX_TOKENS" { Some("lots".to_string()) } else { None }
+        });
+        assert!(res.is_err());
     }
 }
