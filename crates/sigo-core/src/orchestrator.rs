@@ -48,6 +48,10 @@ pub struct Orchestrator {
     pub backend: Arc<dyn ClaudeBackend>,
     pub tokenizer: Arc<dyn Tokenizer>,
     pub sink: Arc<dyn BenchmarkSink>,
+    /// Running local-token totals of the committed conversation history, kept so the
+    /// per-turn cumulative counts are O(1) instead of re-tokenizing the whole history.
+    chinese_convo_tokens: u32,
+    english_convo_tokens: u32,
 }
 
 /// Sink for streamed English output. Implementations: terminal printer, in-memory buffer for tests.
@@ -93,6 +97,8 @@ impl Orchestrator {
             backend,
             tokenizer,
             sink,
+            chinese_convo_tokens: 0,
+            english_convo_tokens: 0,
         }
     }
 
@@ -101,6 +107,8 @@ impl Orchestrator {
         self.turn_index = 0;
         self.chinese_convo = Conversation::new();
         self.english_convo = Conversation::new();
+        self.chinese_convo_tokens = 0;
+        self.english_convo_tokens = 0;
     }
 
     /// Run one full turn end-to-end. The streamed English output is written to `out`.
@@ -138,13 +146,11 @@ impl Orchestrator {
                 0
             });
 
-        // Cumulative totals: prior session content + this prompt.
+        // Cumulative totals: committed history (running counter) + this prompt.
         let chinese_cumulative_prompt_tokens_local =
-            cumulative_tokens(self.tokenizer.as_ref(), &self.chinese_convo)
-                + chinese_prompt_tokens_local;
+            self.chinese_convo_tokens + chinese_prompt_tokens_local;
         let english_cumulative_prompt_tokens_local =
-            cumulative_tokens(self.tokenizer.as_ref(), &self.english_convo)
-                + english_prompt_tokens_local;
+            self.english_convo_tokens + english_prompt_tokens_local;
 
         // Step 2.5 (Full control mode only): launch parallel English Claude run.
         let english_control_future: Option<tokio::task::JoinHandle<Result<EnglishControlRun>>> =
@@ -272,6 +278,16 @@ impl Orchestrator {
             self.english_convo.push_user(english_prompt.to_string());
             self.english_convo
                 .push_assistant(english_response_emitted.clone());
+            // Advance the running token totals by exactly this turn's contribution
+            // (prompt + response on each side), matching a full re-tokenization.
+            let english_response_tokens_local = self
+                .tokenizer
+                .count_tokens(&english_response_emitted)
+                .unwrap_or(0);
+            self.chinese_convo_tokens +=
+                chinese_prompt_tokens_local + chinese_response_tokens_local;
+            self.english_convo_tokens +=
+                english_prompt_tokens_local + english_response_tokens_local;
         }
 
         let english_control_run = if let Some(handle) = english_control_future {
@@ -331,17 +347,6 @@ impl Orchestrator {
         }
         Ok(record)
     }
-}
-
-fn cumulative_tokens(tokenizer: &dyn Tokenizer, convo: &Conversation) -> u32 {
-    let mut total: u32 = 0;
-    if let Some(s) = &convo.system {
-        total += tokenizer.count_tokens(s).unwrap_or(0);
-    }
-    for m in &convo.messages {
-        total += tokenizer.count_tokens(&m.content).unwrap_or(0);
-    }
-    total
 }
 
 async fn emit_segments(
@@ -468,6 +473,37 @@ mod tests {
         assert_eq!(orch.english_convo.messages.len(), 2);
         assert_eq!(orch.turn_index, 1);
         assert_eq!(sink.snapshot().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn cumulative_local_counts_equal_full_history_retokenization() {
+        let translator = Arc::new(FakeTranslator::new());
+        translator.add_en_to_zh("hi", "你好");
+        translator.add_zh_to_en("你好。", "Hi.");
+        let backend = Arc::new(FakeBackend::new());
+        backend.enqueue_simple("你好。", Usage::default());
+        backend.enqueue_simple("你好。", Usage::default());
+        let sink = Arc::new(MemorySink::new());
+        let mut orch = build(translator, backend, sink);
+        let mut out = CollectSink::default();
+        let r1 = orch.run_turn("hi", &mut out).await.unwrap();
+        let r2 = orch.run_turn("hi", &mut out).await.unwrap();
+
+        let tk = TokenizerProxy::new().unwrap();
+        let t = |s: &str| tk.count_tokens(s).unwrap();
+        // Turn 0: empty history + this prompt.
+        assert_eq!(r1.chinese_cumulative_prompt_tokens_local, t("你好"));
+        assert_eq!(r1.english_cumulative_prompt_tokens_local, t("hi"));
+        // Turn 1: prior [prompt, response] pair + this prompt — exactly the sum a
+        // from-scratch re-tokenization of the whole history would produce.
+        assert_eq!(
+            r2.chinese_cumulative_prompt_tokens_local,
+            t("你好") + t("你好。") + t("你好")
+        );
+        assert_eq!(
+            r2.english_cumulative_prompt_tokens_local,
+            t("hi") + t("Hi.") + t("hi")
+        );
     }
 
     #[tokio::test]
