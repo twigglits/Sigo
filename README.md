@@ -49,7 +49,7 @@ and run `sigo doctor`.
 cargo build --release        # binary at target/release/sigo
 ```
 
-Requires Rust 1.75+. Same external setup as the install-script path.
+Requires Rust 1.88+. Same external setup as the install-script path.
 
 ## Requirements
 
@@ -135,8 +135,11 @@ Start the REPL:
 sigo
 ```
 
-Type English, get English. The turn footer shows token counts and the
-estimated savings vs the English baseline.
+Type English, get English. The turn footer shows the per-turn latency, the
+input tokens Claude reported for the Chinese prompt, and a local `o200k_base`
+proxy count for the English baseline — e.g.
+`[turn 0 · 1873 ms · ZH-in 41 reported vs EN-proxy 27 local]`. Sigo shows the
+two counts side by side rather than inventing a single "savings" number.
 
 ### Subcommands
 
@@ -176,17 +179,22 @@ sigo bench run --eval coding --corpus my_humaneval.jsonl  # custom HumanEval-for
 - **Live Chinese run.** Each REPL turn translates EN→ZH and runs the
   Chinese conversation against Claude. Claude's response stream tells
   us the authoritative input/output token counts.
-- **English control.** Each turn we keep a parallel English transcript.
-  - `control_mode = "prompt-only"`: local-tokenize the English
-    transcript (Claude 2 tokenizer via `claude-tokenizer` crate) — no
-    extra Claude calls.
-  - `control_mode = "full"`: fire a parallel English Claude run per
-    turn and capture its authoritative usage. Doubles API cost.
-- **Calibration.** Local-tokenizer counts approximate Claude's actual
-  tokenization (Claude 2 BPE in the same family as later Claudes). The
-  ratio `chinese_local / chinese_reported` per turn is a calibration
-  factor we use to convert English-local counts into estimated
-  authoritative tokens for the savings percentage.
+- **Local proxy counts.** Every turn also counts the English and Chinese
+  prompts with a local `o200k_base` BPE tokenizer (`tiktoken-rs`). Claude's
+  tokenizer is non-public, so these are a **directional proxy**, not
+  authoritative numbers — handy for a quick EN-vs-ZH ratio without spending
+  tokens.
+- **English control.** Each turn keeps a parallel English transcript.
+  - `control_mode = "prompt-only"`: the English baseline is the local proxy
+    count only — no extra Claude calls.
+  - `control_mode = "full"`: additionally fire a parallel English Claude run
+    per turn and capture its authoritative usage. Doubles API cost, but every
+    layer is then a real-vs-real comparison.
+- **No invented "savings."** Sigo shows the reported Chinese cost and the
+  English proxy/control side by side and lets you compare them; it deliberately
+  does **not** synthesize a single "estimated savings %" by calibrating one
+  tokenizer against another. For an authoritative, objectively-scored paired
+  comparison, use `--eval coding` (below).
 
 The JSONL log is rolling and append-only at
 `$XDG_DATA_HOME/sigo/turns.jsonl`. Each line is one `TurnRecord`.
@@ -256,11 +264,12 @@ cargo build --workspace
 cargo test --workspace
 ```
 
-There are 36 unit + integration tests covering the conversation types,
-the bundled tokenizer, the sentence-buffer state machine, the Anthropic
-SSE event parser, the Claude Code NDJSON parser, the orchestrator
-pipeline (happy path + full control mode + stream-without-Done), the
-JSONL sink roundtrip, and the bench summary calibration math.
+The workspace carries a broad unit + integration suite covering the
+conversation types, the `o200k_base` tokenizer proxy, the sentence-buffer
+state machine, the Anthropic SSE event parser, the Claude Code NDJSON parser,
+the orchestrator pipeline (happy path + full control mode + stream-without-Done),
+the JSONL sink roundtrip, and the bench summary aggregation (which reports raw
+counts without inventing an estimate).
 
 Live tests against real Ollama + real Anthropic API are gated behind
 `--features live` and are not run by default:

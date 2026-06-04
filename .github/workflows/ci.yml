@@ -27,3 +27,30 @@ jobs:
       - uses: actions/checkout@v5
       - name: ShellCheck install.sh
         run: shellcheck install.sh
+
+  # Guard the declared MSRV (Cargo.toml `rust-version`). The locked dependency
+  # tree currently floors at 1.88; this catches an accidental bump or a new
+  # dependency that needs newer Rust.
+  msrv:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@1.88.0
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo check on MSRV
+        run: cargo check --workspace --all-targets --locked
+
+  # Build the image so a Dockerfile regression fails CI instead of surfacing
+  # only at release time. No push; layers are cached across runs via gha.
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-buildx-action@v3
+      - name: docker build (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
