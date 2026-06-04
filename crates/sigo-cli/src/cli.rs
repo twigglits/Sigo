@@ -67,5 +67,11 @@ pub enum BenchCommand {
         limit: Option<usize>,
         #[arg(long)]
         out_dir: Option<PathBuf>,
+        /// Evaluation mode. Currently only `coding` (objective test execution).
+        #[arg(long)]
+        eval: Option<String>,
+        /// Generations per task per arm (pass@k). Default 1.
+        #[arg(long, default_value_t = 1)]
+        samples: usize,
     },
 }

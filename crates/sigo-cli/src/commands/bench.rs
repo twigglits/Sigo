@@ -66,8 +66,8 @@ pub async fn run(config: &SigoConfig, cmd: BenchCommand) -> Result<()> {
                 other => anyhow::bail!("unknown format `{other}` (use `jsonl` or `csv`)"),
             }
         }
-        BenchCommand::Run { corpus, label, limit, out_dir } => {
-            bench_run::run(config, RunOptions { corpus_path: corpus, label, limit, out_dir }).await?;
+        BenchCommand::Run { corpus, label, limit, out_dir, eval, samples } => {
+            bench_run::run(config, RunOptions { corpus_path: corpus, label, limit, out_dir, eval, samples }).await?;
         }
     }
     Ok(())

@@ -10,6 +10,8 @@ use sigo_core::{
     ClaudeBackend, TokenizerProxy, ControlMode, CorpusEntry, JsonlSink, OllamaTranslator,
     Orchestrator, OrchestratorConfig, OutputSink, RunReport, SigoConfig, Tokenizer, Translator,
     TurnRecord,
+    load_coding_corpus, summarize_eval, build_eval_markdown, build_eval_csv, evaluate_answer,
+    roundtrip_fidelity, OllamaJudge, ArmCost, ArmEval, TaskEval,
 };
 
 use crate::repl::build_backend;
@@ -19,6 +21,8 @@ pub struct RunOptions {
     pub label: Option<String>,
     pub limit: Option<usize>,
     pub out_dir: Option<PathBuf>,
+    pub eval: Option<String>,
+    pub samples: usize,
 }
 
 pub type TranslatorBuilder = Arc<dyn Fn() -> Arc<dyn Translator> + Send + Sync>;
@@ -54,6 +58,13 @@ pub async fn run_with_builders(
     // does setup work that the user would then have to undo.
     backend_builder()
         .context("pre-flight: failed to construct backend (check config and env vars)")?;
+
+    if opts.eval.as_deref() == Some("coding") {
+        return run_coding_eval(cfg, &opts, backend_kind, &translator_builder, &backend_builder).await;
+    }
+    if let Some(other) = opts.eval.as_deref() {
+        anyhow::bail!("unknown --eval mode `{other}` (only `coding` is supported)");
+    }
 
     let corpus = load_corpus(opts.corpus_path.as_deref())
         .map_err(|e| anyhow::anyhow!("corpus load: {e}"))?;
@@ -284,6 +295,155 @@ fn write_error_line(
         error: err,
     };
     writeln!(handle, "{}", serde_json::to_string(&line)?)?;
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn run_coding_eval(
+    cfg: &SigoConfig,
+    opts: &RunOptions,
+    backend_kind: BackendKind,
+    translator_builder: &TranslatorBuilder,
+    backend_builder: &BackendBuilder,
+) -> Result<()> {
+    use std::time::Duration;
+
+    if opts.samples != 1 {
+        anyhow::bail!("--samples > 1 (pass@k) is not yet implemented; use --samples 1");
+    }
+
+    let run_id = build_run_id(opts.label.as_deref());
+    let out_dir = opts.out_dir.clone().unwrap_or_else(|| default_run_dir(&run_id));
+    std::fs::create_dir_all(&out_dir)
+        .with_context(|| format!("create out_dir {}", out_dir.display()))?;
+
+    let tasks = load_coding_corpus(opts.corpus_path.as_deref())
+        .map_err(|e| anyhow::anyhow!("coding corpus load: {e}"))?;
+    let tasks: Vec<_> = match opts.limit {
+        Some(n) => tasks.into_iter().take(n).collect(),
+        None => tasks,
+    };
+    if tasks.is_empty() {
+        anyhow::bail!("coding corpus is empty after applying --limit");
+    }
+
+    let tokenizer: Arc<dyn Tokenizer> = Arc::new(
+        TokenizerProxy::new().context("failed to initialize o200k_base proxy tokenizer")?,
+    );
+    // Rolling audit log: the orchestrator appends each ZH TurnRecord here, same as a
+    // normal bench run. The structured benchmark output is eval_report.{md,csv} below.
+    let sink: Arc<dyn BenchmarkSink> = Arc::new(
+        JsonlSink::open(cfg.resolved_log_path()).context("failed to open benchmark log")?,
+    );
+    let judge = OllamaJudge::new(
+        &cfg.translator.endpoint,
+        &cfg.translator.model,
+        Duration::from_secs(cfg.translator.timeout_seconds),
+    );
+    let exec_timeout = Duration::from_secs(10);
+
+    let total = tasks.len();
+    println!(
+        "sigo bench run --eval coding · run_id={run_id} · backend={} · {total} tasks",
+        cfg.claude.backend
+    );
+
+    let mut evals: Vec<TaskEval> = Vec::with_capacity(total);
+    let mut n_failed = 0usize;
+    for (i, task) in tasks.iter().enumerate() {
+        let translator = translator_builder();
+        let backend = backend_builder()
+            .with_context(|| format!("build backend for task {} ({})", i + 1, task.task_id))?;
+        let mut orch = Orchestrator::new(
+            OrchestratorConfig {
+                backend_kind,
+                claude_model: cfg.claude.model.clone(),
+                translator_model: cfg.translator.model.clone(),
+                control_mode: ControlMode::Full,
+            },
+            translator.clone(),
+            backend,
+            tokenizer.clone(),
+            sink.clone(),
+        );
+
+        let mut out = SilentSink;
+        let record = match orch.run_turn(&task.prompt, &mut out).await {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("[{}/{}] {} · FAILED: {e}", i + 1, total, task.task_id);
+                n_failed += 1;
+                continue;
+            }
+        };
+
+        // ZH arm answer = raw Chinese response (code preserved untranslated).
+        let zh_outcome =
+            evaluate_answer(&record.chinese_response, &task.test, &task.entry_point, exec_timeout).await;
+        // EN arm answer = the English control run's response.
+        let en_answer = match record.english_control_run.as_ref() {
+            Some(c) => c.english_response.as_str(),
+            None => {
+                eprintln!("[{}/{}] {} · WARN: no English control run (Full mode expected); EN arm scores no_code", i + 1, total, task.task_id);
+                ""
+            }
+        };
+        let en_outcome = evaluate_answer(en_answer, &task.test, &task.entry_point, exec_timeout).await;
+
+        let zh_in_proxy = tokenizer.count_tokens(&record.chinese_prompt).unwrap_or(0);
+        let en_in_proxy = tokenizer.count_tokens(&task.prompt).unwrap_or(0);
+
+        let zh_cost = ArmCost {
+            input: record.chinese_prompt_tokens_reported.unwrap_or(0),
+            output: record.chinese_response_tokens_reported.unwrap_or(0),
+            cache_read: record.cache_read_tokens_reported.unwrap_or(0),
+            cache_write: record.cache_write_tokens_reported.unwrap_or(0),
+        };
+        let en_cost = record
+            .english_control_run
+            .as_ref()
+            .map(|c| ArmCost {
+                input: c.prompt_tokens_reported,
+                output: c.response_tokens_reported,
+                cache_read: c.cache_read_tokens_reported.unwrap_or(0),
+                cache_write: c.cache_write_tokens_reported.unwrap_or(0),
+            })
+            .unwrap_or_default();
+
+        let fidelity =
+            roundtrip_fidelity(translator.as_ref(), &judge, &task.prompt, &record.chinese_prompt).await;
+
+        println!(
+            "[{}/{}] {} · en={} zh={} · zh-in={} en-in={}",
+            i + 1, total, task.task_id, en_outcome.label(), zh_outcome.label(),
+            zh_cost.input, en_cost.input
+        );
+
+        evals.push(TaskEval {
+            task_id: task.task_id.clone(),
+            category: task.category.clone(),
+            en: ArmEval { outcome: en_outcome, cost: en_cost, proxy_in: en_in_proxy },
+            zh: ArmEval { outcome: zh_outcome, cost: zh_cost, proxy_in: zh_in_proxy },
+            fidelity,
+        });
+    }
+
+    if evals.is_empty() {
+        anyhow::bail!("no tasks produced a usable record");
+    }
+    let summary = summarize_eval(&evals, &cfg.pricing, 0xC0DE);
+    let md = build_eval_markdown(&run_id, &cfg.claude.backend, &cfg.claude.model, &summary);
+    let csv = build_eval_csv(&evals, &cfg.pricing);
+    let md_path = out_dir.join("eval_report.md");
+    std::fs::write(&md_path, md).with_context(|| format!("write {}", md_path.display()))?;
+    std::fs::write(out_dir.join("eval_report.csv"), csv).context("write eval_report.csv")?;
+
+    println!(
+        "coding eval complete: {} scored, {} failed/skipped of {} · EN pass {}/{} · ZH pass {}/{} · report: {}",
+        evals.len(), n_failed, total,
+        summary.en_pass.passes, summary.en_pass.n,
+        summary.zh_pass.passes, summary.zh_pass.n, md_path.display()
+    );
     Ok(())
 }
 

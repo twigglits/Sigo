@@ -39,6 +39,7 @@ pub async fn run(config: &SigoConfig) -> Result<()> {
     }
 
     all_ok &= check("tokenizer loadable", check_tokenizer().await);
+    all_ok &= check("python3 available (for --eval coding)", check_python3().await);
     all_ok &= check(
         "log path writable",
         check_log_writable(&config.resolved_log_path()).await,
@@ -157,6 +158,19 @@ async fn check_tokenizer() -> Result<String> {
     let t = TokenizerProxy::new()?;
     let n = t.count_tokens("hello world")?;
     Ok(format!("{} loaded, sample count = {n}", TokenizerProxy::label()))
+}
+
+async fn check_python3() -> Result<String> {
+    let out = tokio::process::Command::new("python3")
+        .arg("--version")
+        .output()
+        .await
+        .map_err(|e| anyhow::anyhow!("spawn python3: {e} — install Python 3 to use `--eval coding`"))?;
+    if out.status.success() {
+        Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+    } else {
+        anyhow::bail!("python3 --version exited {}", out.status)
+    }
 }
 
 async fn check_log_writable(path: &std::path::Path) -> Result<String> {
