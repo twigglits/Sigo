@@ -31,6 +31,9 @@ pub enum SigoError {
     #[error("config error: {0}")]
     Config(String),
 
+    #[error("eval error: {0}")]
+    Eval(String),
+
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
 
