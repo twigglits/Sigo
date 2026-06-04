@@ -13,9 +13,18 @@ pub struct CorpusEntry {
 #[derive(Debug, Error)]
 pub enum CorpusLoadError {
     #[error("read {path}: {source}")]
-    Io { path: String, #[source] source: std::io::Error },
+    Io {
+        path: String,
+        #[source]
+        source: std::io::Error,
+    },
     #[error("{path}:{line}: malformed json: {source}")]
-    Json { path: String, line: usize, #[source] source: serde_json::Error },
+    Json {
+        path: String,
+        line: usize,
+        #[source]
+        source: serde_json::Error,
+    },
     #[error("{path}: empty corpus (no non-blank entries)")]
     Empty { path: String },
 }
@@ -26,7 +35,9 @@ pub fn load_default_corpus() -> Vec<CorpusEntry> {
 }
 
 pub fn load_corpus(path: Option<&Path>) -> Result<Vec<CorpusEntry>, CorpusLoadError> {
-    let Some(p) = path else { return Ok(load_default_corpus()) };
+    let Some(p) = path else {
+        return Ok(load_default_corpus());
+    };
     let raw = std::fs::read(p).map_err(|source| CorpusLoadError::Io {
         path: p.display().to_string(),
         source,
@@ -57,12 +68,18 @@ fn parse_jsonl(path: &str, raw: &[u8]) -> Result<Vec<CorpusEntry>, CorpusLoadErr
         if trimmed.is_empty() || trimmed.starts_with('#') {
             continue;
         }
-        let entry: CorpusEntry = serde_json::from_str(trimmed)
-            .map_err(|source| CorpusLoadError::Json { path: path.to_string(), line: i + 1, source })?;
+        let entry: CorpusEntry =
+            serde_json::from_str(trimmed).map_err(|source| CorpusLoadError::Json {
+                path: path.to_string(),
+                line: i + 1,
+                source,
+            })?;
         out.push(entry);
     }
     if out.is_empty() {
-        Err(CorpusLoadError::Empty { path: path.to_string() })
+        Err(CorpusLoadError::Empty {
+            path: path.to_string(),
+        })
     } else {
         Ok(out)
     }
@@ -85,7 +102,9 @@ fn parse_plain_text(path: &str, raw: &[u8]) -> Result<Vec<CorpusEntry>, CorpusLo
         });
     }
     if out.is_empty() {
-        Err(CorpusLoadError::Empty { path: path.to_string() })
+        Err(CorpusLoadError::Empty {
+            path: path.to_string(),
+        })
     } else {
         Ok(out)
     }
@@ -99,7 +118,11 @@ mod tests {
     #[test]
     fn bundled_default_corpus_parses_and_has_expected_size() {
         let entries = load_default_corpus();
-        assert_eq!(entries.len(), 30, "default corpus should ship exactly 30 entries");
+        assert_eq!(
+            entries.len(),
+            30,
+            "default corpus should ship exactly 30 entries"
+        );
         let categories: std::collections::BTreeSet<&str> =
             entries.iter().map(|e| e.category.as_str()).collect();
         assert!(categories.contains("coding-short"));
@@ -114,10 +137,19 @@ mod tests {
         writeln!(f, r#"# a comment"#).unwrap();
         writeln!(f, r#"{{"category":"b","prompt":"world"}}"#).unwrap();
         let v = load_corpus(Some(f.path())).unwrap();
-        assert_eq!(v, vec![
-            CorpusEntry { category: "a".into(), prompt: "hello".into() },
-            CorpusEntry { category: "b".into(), prompt: "world".into() },
-        ]);
+        assert_eq!(
+            v,
+            vec![
+                CorpusEntry {
+                    category: "a".into(),
+                    prompt: "hello".into()
+                },
+                CorpusEntry {
+                    category: "b".into(),
+                    prompt: "world".into()
+                },
+            ]
+        );
     }
 
     #[test]
@@ -157,7 +189,8 @@ mod tests {
 
     #[test]
     fn missing_file_returns_io_error() {
-        let err = load_corpus(Some(std::path::Path::new("/nonexistent/path/xyzzy.jsonl"))).unwrap_err();
+        let err =
+            load_corpus(Some(std::path::Path::new("/nonexistent/path/xyzzy.jsonl"))).unwrap_err();
         assert!(matches!(err, CorpusLoadError::Io { .. }));
     }
 

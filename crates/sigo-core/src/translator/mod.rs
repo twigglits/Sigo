@@ -1,6 +1,6 @@
-use async_trait::async_trait;
 use crate::conversation::Direction;
 use crate::error::Result;
+use async_trait::async_trait;
 
 pub mod fakes;
 pub mod ollama;

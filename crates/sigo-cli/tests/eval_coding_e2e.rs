@@ -5,21 +5,43 @@ use sigo_core::{
 use std::time::Duration;
 
 fn arm(o: Outcome, input: u32, output: u32, proxy: u32) -> ArmEval {
-    ArmEval { outcome: o, cost: ArmCost { input, output, cache_read: 0, cache_write: 0 }, proxy_in: proxy }
+    ArmEval {
+        outcome: o,
+        cost: ArmCost {
+            input,
+            output,
+            cache_read: 0,
+            cache_write: 0,
+        },
+        proxy_in: proxy,
+    }
 }
 
 #[test]
 fn layered_report_reflects_en_advantage() {
     let tasks = vec![
-        TaskEval { task_id: "HumanEval/0".into(), category: "coding-verifiable".into(),
-            en: arm(Outcome::Pass, 100, 200, 90), zh: arm(Outcome::AssertFail, 140, 260, 70), fidelity: Some(7) },
-        TaskEval { task_id: "HumanEval/1".into(), category: "coding-verifiable".into(),
-            en: arm(Outcome::Pass, 110, 210, 100), zh: arm(Outcome::Pass, 150, 250, 80), fidelity: Some(9) },
+        TaskEval {
+            task_id: "HumanEval/0".into(),
+            category: "coding-verifiable".into(),
+            en: arm(Outcome::Pass, 100, 200, 90),
+            zh: arm(Outcome::AssertFail, 140, 260, 70),
+            fidelity: Some(7),
+        },
+        TaskEval {
+            task_id: "HumanEval/1".into(),
+            category: "coding-verifiable".into(),
+            en: arm(Outcome::Pass, 110, 210, 100),
+            zh: arm(Outcome::Pass, 150, 250, 80),
+            fidelity: Some(9),
+        },
     ];
     let s = summarize_eval(&tasks, &PricingConfig::default(), 0xC0DE);
     assert_eq!(s.en_pass.passes, 2);
     assert_eq!(s.zh_pass.passes, 1);
-    assert!(s.reported_input.mean_delta_pct > 0.0, "ZH should cost more reported input here");
+    assert!(
+        s.reported_input.mean_delta_pct > 0.0,
+        "ZH should cost more reported input here"
+    );
     assert!(s.zh_cost_per_pass > s.en_cost_per_pass);
 
     let md = build_eval_markdown("rid", "claude-code", "claude-sonnet-4-6", &s);
@@ -31,12 +53,21 @@ fn layered_report_reflects_en_advantage() {
 
 #[tokio::test]
 async fn evaluate_answer_scores_real_pair() {
-    let py = std::process::Command::new("python3").arg("--version").output()
-        .map(|o| o.status.success()).unwrap_or(false);
-    if !py { eprintln!("skip: no python3"); return; }
+    let py = std::process::Command::new("python3")
+        .arg("--version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    if !py {
+        eprintln!("skip: no python3");
+        return;
+    }
     let answer = "```python\ndef add(a, b):\n    return a + b\n```";
     let test = "def check(candidate):\n    assert candidate(2, 3) == 5\n";
-    assert_eq!(evaluate_answer(answer, test, "add", Duration::from_secs(10)).await, Outcome::Pass);
+    assert_eq!(
+        evaluate_answer(answer, test, "add", Duration::from_secs(10)).await,
+        Outcome::Pass
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -60,11 +91,11 @@ async fn evaluate_answer_scores_real_pair() {
 
 #[tokio::test]
 async fn eval_mode_writes_report_with_fakes() {
-    use std::sync::Arc;
     use sigo_cli::commands::bench_run::{
         run_with_builders, BackendBuilder, RunOptions, TranslatorBuilder,
     };
     use sigo_core::{ClaudeBackend, FakeBackend, FakeTranslator, SigoConfig, Translator, Usage};
+    use std::sync::Arc;
     use tempfile::TempDir;
 
     // Skip if python3 is unavailable — code execution requires it.
@@ -129,7 +160,12 @@ async fn eval_mode_writes_report_with_fakes() {
     let pass_answer = "```python\ndef add(a, b):\n    return a + b\n```";
     let fail_answer = "```python\ndef sub(a, b):\n    return a + b\n```"; // wrong: adds instead of subtracts
 
-    let mk_usage = || Usage { input_tokens: 10, output_tokens: 20, cache_read: Some(0), cache_write: Some(0) };
+    let mk_usage = || Usage {
+        input_tokens: 10,
+        output_tokens: 20,
+        cache_read: Some(0),
+        cache_write: Some(0),
+    };
 
     // t/pass — enqueue the correct solution twice (ZH arm + EN control arm).
     backend.enqueue_simple(pass_answer, mk_usage());
@@ -181,13 +217,18 @@ async fn eval_mode_writes_report_with_fakes() {
         "expected header + 4 data rows; got: {:?}",
         csv_lines
     );
-    assert!(csv_lines[0].starts_with("task_id,category,arm,outcome"),
-        "unexpected CSV header: {}", csv_lines[0]);
+    assert!(
+        csv_lines[0].starts_with("task_id,category,arm,outcome"),
+        "unexpected CSV header: {}",
+        csv_lines[0]
+    );
 
     // Markdown: must contain the EN pass / ZH win-rate table.
     let md = std::fs::read_to_string(&md_path).unwrap();
-    assert!(md.contains("EN pass") || md.contains("| EN |"),
-        "markdown should contain EN pass row; got:\n{md}");
+    assert!(
+        md.contains("EN pass") || md.contains("| EN |"),
+        "markdown should contain EN pass row; got:\n{md}"
+    );
 
     // t/pass passes both arms; t/fail fails both.
     // EN pass count must be exactly 1 (out of 2 tasks).

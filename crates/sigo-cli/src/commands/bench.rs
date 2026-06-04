@@ -24,11 +24,19 @@ pub async fn run(config: &SigoConfig, cmd: BenchCommand) -> Result<()> {
             if let Some(v) = s.mean_zh_response_reported {
                 println!("mean ZH-response reported: {:.1}", v);
             }
-            println!("cumulative ZH-prompt local: {}", s.cumulative_zh_prompt_local);
-            println!("cumulative EN-prompt local: {}", s.cumulative_en_prompt_local);
+            println!(
+                "cumulative ZH-prompt local: {}",
+                s.cumulative_zh_prompt_local
+            );
+            println!(
+                "cumulative EN-prompt local: {}",
+                s.cumulative_en_prompt_local
+            );
         }
         BenchCommand::Show { session, turn } => {
-            let sid: Uuid = session.parse().map_err(|e| anyhow::anyhow!("bad session uuid: {e}"))?;
+            let sid: Uuid = session
+                .parse()
+                .map_err(|e| anyhow::anyhow!("bad session uuid: {e}"))?;
             let found = records
                 .iter()
                 .find(|r| r.session_id == sid && r.turn_index == turn)
@@ -66,8 +74,26 @@ pub async fn run(config: &SigoConfig, cmd: BenchCommand) -> Result<()> {
                 other => anyhow::bail!("unknown format `{other}` (use `jsonl` or `csv`)"),
             }
         }
-        BenchCommand::Run { corpus, label, limit, out_dir, eval, samples } => {
-            bench_run::run(config, RunOptions { corpus_path: corpus, label, limit, out_dir, eval, samples }).await?;
+        BenchCommand::Run {
+            corpus,
+            label,
+            limit,
+            out_dir,
+            eval,
+            samples,
+        } => {
+            bench_run::run(
+                config,
+                RunOptions {
+                    corpus_path: corpus,
+                    label,
+                    limit,
+                    out_dir,
+                    eval,
+                    samples,
+                },
+            )
+            .await?;
         }
     }
     Ok(())

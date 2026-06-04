@@ -27,9 +27,8 @@ pub fn read_jsonl(path: &Path) -> Result<Vec<TurnRecord>> {
         if line.trim().is_empty() {
             continue;
         }
-        let r: TurnRecord = serde_json::from_str(line).map_err(|e| {
-            crate::error::SigoError::Sink(format!("line {}: {e}", i + 1))
-        })?;
+        let r: TurnRecord = serde_json::from_str(line)
+            .map_err(|e| crate::error::SigoError::Sink(format!("line {}: {e}", i + 1)))?;
         out.push(r);
     }
     Ok(out)
@@ -41,10 +40,16 @@ pub fn summarize(records: &[TurnRecord]) -> Summary {
     }
     let n = records.len() as f64;
 
-    let mean_en_prompt_local =
-        records.iter().map(|r| r.english_prompt_tokens_local as f64).sum::<f64>() / n;
-    let mean_zh_prompt_local =
-        records.iter().map(|r| r.chinese_prompt_tokens_local as f64).sum::<f64>() / n;
+    let mean_en_prompt_local = records
+        .iter()
+        .map(|r| r.english_prompt_tokens_local as f64)
+        .sum::<f64>()
+        / n;
+    let mean_zh_prompt_local = records
+        .iter()
+        .map(|r| r.chinese_prompt_tokens_local as f64)
+        .sum::<f64>()
+        / n;
 
     let reported_vals: Vec<u32> = records
         .iter()

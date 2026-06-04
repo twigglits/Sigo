@@ -15,7 +15,11 @@ async fn chat_run_once_emits_translated_answer_and_trailing_newline() {
     let backend = Arc::new(FakeBackend::new());
     backend.enqueue_simple(
         "你好，世界！",
-        Usage { input_tokens: 5, output_tokens: 5, ..Default::default() },
+        Usage {
+            input_tokens: 5,
+            output_tokens: 5,
+            ..Default::default()
+        },
     );
 
     let sink = Arc::new(MemorySink::new());
@@ -33,7 +37,11 @@ async fn chat_run_once_emits_translated_answer_and_trailing_newline() {
         .await
         .expect("turn should complete");
 
-    assert!(out.buf.contains("Hello, world!"), "answer streamed to sink: {:?}", out.buf);
+    assert!(
+        out.buf.contains("Hello, world!"),
+        "answer streamed to sink: {:?}",
+        out.buf
+    );
     assert!(out.buf.ends_with('\n'), "trailing newline appended");
     assert_eq!(sink.snapshot().len(), 1, "turn recorded once");
 }

@@ -70,7 +70,9 @@ pub struct CollectSink {
     pub buf: String,
 }
 impl OutputSink for CollectSink {
-    fn write(&mut self, s: &str) { self.buf.push_str(s); }
+    fn write(&mut self, s: &str) {
+        self.buf.push_str(s);
+    }
 }
 
 impl Orchestrator {
@@ -114,24 +116,35 @@ impl Orchestrator {
 
         // Step 1: EN → ZH
         let translation_in_started = Instant::now();
-        let chinese_prompt = self.translator
+        let chinese_prompt = self
+            .translator
             .translate(english_prompt, Direction::EnToZh)
             .await?;
         let translation_in_ms = translation_in_started.elapsed().as_millis() as u64;
 
         // Step 2: Local token counts for both prompts.
-        let english_prompt_tokens_local = self.tokenizer
+        let english_prompt_tokens_local = self
+            .tokenizer
             .count_tokens(english_prompt)
-            .unwrap_or_else(|e| { errors.push(format!("tokenizer en prompt: {e}")); 0 });
-        let chinese_prompt_tokens_local = self.tokenizer
+            .unwrap_or_else(|e| {
+                errors.push(format!("tokenizer en prompt: {e}"));
+                0
+            });
+        let chinese_prompt_tokens_local = self
+            .tokenizer
             .count_tokens(&chinese_prompt)
-            .unwrap_or_else(|e| { errors.push(format!("tokenizer zh prompt: {e}")); 0 });
+            .unwrap_or_else(|e| {
+                errors.push(format!("tokenizer zh prompt: {e}"));
+                0
+            });
 
         // Cumulative totals: prior session content + this prompt.
         let chinese_cumulative_prompt_tokens_local =
-            cumulative_tokens(self.tokenizer.as_ref(), &self.chinese_convo) + chinese_prompt_tokens_local;
+            cumulative_tokens(self.tokenizer.as_ref(), &self.chinese_convo)
+                + chinese_prompt_tokens_local;
         let english_cumulative_prompt_tokens_local =
-            cumulative_tokens(self.tokenizer.as_ref(), &self.english_convo) + english_prompt_tokens_local;
+            cumulative_tokens(self.tokenizer.as_ref(), &self.english_convo)
+                + english_prompt_tokens_local;
 
         // Step 2.5 (Full control mode only): launch parallel English Claude run.
         let english_control_future: Option<tokio::task::JoinHandle<Result<EnglishControlRun>>> =
@@ -147,7 +160,8 @@ impl Orchestrator {
             };
 
         // Step 3: Open Claude stream — conversation history does NOT include the new prompt yet.
-        let mut stream = self.backend
+        let mut stream = self
+            .backend
             .stream_turn(&self.chinese_convo, &chinese_prompt)
             .await?;
 
@@ -184,9 +198,13 @@ impl Orchestrator {
                         &mut translation_out_calls,
                         &mut errors,
                         out,
-                    ).await;
+                    )
+                    .await;
                 }
-                Ok(ResponseChunk::Done { usage, stop_reason: _ }) => {
+                Ok(ResponseChunk::Done {
+                    usage,
+                    stop_reason: _,
+                }) => {
                     reported_input = Some(usage.input_tokens);
                     reported_output = Some(usage.output_tokens);
                     cache_read = usage.cache_read;
@@ -200,7 +218,8 @@ impl Orchestrator {
                         &mut translation_out_calls,
                         &mut errors,
                         out,
-                    ).await;
+                    )
+                    .await;
                     stream_ended_with_done = true;
                     break;
                 }
@@ -214,7 +233,8 @@ impl Orchestrator {
                         &mut translation_out_calls,
                         &mut errors,
                         out,
-                    ).await;
+                    )
+                    .await;
                     incomplete = true;
                     errors.push(format!("claude stream: {e}"));
                     break;
@@ -231,28 +251,40 @@ impl Orchestrator {
                 &mut translation_out_calls,
                 &mut errors,
                 out,
-            ).await;
+            )
+            .await;
         }
         let claude_total_ms = claude_started.elapsed().as_millis() as u64;
 
         // Step 5: Response-side token count.
-        let chinese_response_tokens_local = self.tokenizer
+        let chinese_response_tokens_local = self
+            .tokenizer
             .count_tokens(&chinese_response)
-            .unwrap_or_else(|e| { errors.push(format!("tokenizer zh response: {e}")); 0 });
+            .unwrap_or_else(|e| {
+                errors.push(format!("tokenizer zh response: {e}"));
+                0
+            });
 
         // Step 6: Advance conversation state ONLY if turn completed cleanly.
         if !incomplete {
             self.chinese_convo.push_user(chinese_prompt.clone());
             self.chinese_convo.push_assistant(chinese_response.clone());
             self.english_convo.push_user(english_prompt.to_string());
-            self.english_convo.push_assistant(english_response_emitted.clone());
+            self.english_convo
+                .push_assistant(english_response_emitted.clone());
         }
 
         let english_control_run = if let Some(handle) = english_control_future {
             match handle.await {
                 Ok(Ok(r)) => Some(r),
-                Ok(Err(e)) => { errors.push(format!("control run: {e}")); None }
-                Err(e) => { errors.push(format!("control join: {e}")); None }
+                Ok(Err(e)) => {
+                    errors.push(format!("control run: {e}"));
+                    None
+                }
+                Err(e) => {
+                    errors.push(format!("control join: {e}"));
+                    None
+                }
             }
         } else {
             None
@@ -391,7 +423,11 @@ mod tests {
     use crate::tokenizer::TokenizerProxy;
     use crate::translator::FakeTranslator;
 
-    fn build(translator: Arc<FakeTranslator>, backend: Arc<FakeBackend>, sink: Arc<MemorySink>) -> Orchestrator {
+    fn build(
+        translator: Arc<FakeTranslator>,
+        backend: Arc<FakeBackend>,
+        sink: Arc<MemorySink>,
+    ) -> Orchestrator {
         let cfg = OrchestratorConfig {
             backend_kind: BackendKind::Api,
             claude_model: "claude-sonnet-4-6".into(),
@@ -409,7 +445,14 @@ mod tests {
         translator.add_zh_to_en("你好，世界！", "Hello, world!");
 
         let backend = Arc::new(FakeBackend::new());
-        backend.enqueue_simple("你好，世界！", Usage { input_tokens: 5, output_tokens: 5, ..Default::default() });
+        backend.enqueue_simple(
+            "你好，世界！",
+            Usage {
+                input_tokens: 5,
+                output_tokens: 5,
+                ..Default::default()
+            },
+        );
 
         let sink = Arc::new(MemorySink::new());
         let mut orch = build(translator, backend, sink.clone());
@@ -440,8 +483,12 @@ mod tests {
         let mut out = CollectSink::default();
         let r1 = orch.run_turn("hi", &mut out).await.unwrap();
         let r2 = orch.run_turn("hi", &mut out).await.unwrap();
-        assert!(r2.chinese_cumulative_prompt_tokens_local > r1.chinese_cumulative_prompt_tokens_local);
-        assert!(r2.english_cumulative_prompt_tokens_local > r1.english_cumulative_prompt_tokens_local);
+        assert!(
+            r2.chinese_cumulative_prompt_tokens_local > r1.chinese_cumulative_prompt_tokens_local
+        );
+        assert!(
+            r2.english_cumulative_prompt_tokens_local > r1.english_cumulative_prompt_tokens_local
+        );
     }
 
     #[tokio::test]
@@ -467,12 +514,26 @@ mod tests {
         let record = orch.run_turn("ping", &mut out).await.unwrap();
 
         // Critical invariants: turn marked incomplete, history unchanged, sink received the record.
-        assert!(record.incomplete, "turn should be marked incomplete after mid-stream error");
-        assert_eq!(orch.chinese_convo.messages.len(), 0, "conversation history must not advance on error");
+        assert!(
+            record.incomplete,
+            "turn should be marked incomplete after mid-stream error"
+        );
+        assert_eq!(
+            orch.chinese_convo.messages.len(),
+            0,
+            "conversation history must not advance on error"
+        );
         assert_eq!(orch.english_convo.messages.len(), 0);
         assert_eq!(orch.turn_index, 0, "turn_index must not increment on error");
-        assert_eq!(sink.snapshot().len(), 1, "incomplete turn is still recorded");
-        assert!(!record.turn_errors.is_empty(), "turn_errors should capture the failure");
+        assert_eq!(
+            sink.snapshot().len(),
+            1,
+            "incomplete turn is still recorded"
+        );
+        assert!(
+            !record.turn_errors.is_empty(),
+            "turn_errors should capture the failure"
+        );
     }
 
     #[tokio::test]
@@ -483,11 +544,21 @@ mod tests {
         let backend = Arc::new(FakeBackend::new());
         backend.enqueue_simple(
             "你好。",
-            Usage { input_tokens: 4, output_tokens: 5, cache_read: Some(100), cache_write: Some(50) },
+            Usage {
+                input_tokens: 4,
+                output_tokens: 5,
+                cache_read: Some(100),
+                cache_write: Some(50),
+            },
         );
         backend.enqueue_simple(
             "Hi.",
-            Usage { input_tokens: 6, output_tokens: 8, cache_read: Some(200), cache_write: Some(40) },
+            Usage {
+                input_tokens: 6,
+                output_tokens: 8,
+                cache_read: Some(200),
+                cache_write: Some(40),
+            },
         );
 
         let sink = Arc::new(MemorySink::new());

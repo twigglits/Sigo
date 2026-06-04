@@ -18,7 +18,10 @@ impl Display {
             println!("─── ZH response ────────────────");
             println!("{}", record.chinese_response);
             println!("─── tokens ─────────────────────");
-            println!("  EN-prompt local:   {}", record.english_prompt_tokens_local);
+            println!(
+                "  EN-prompt local:   {}",
+                record.english_prompt_tokens_local
+            );
             println!(
                 "  ZH-prompt local:   {}  reported: {}",
                 record.chinese_prompt_tokens_local,

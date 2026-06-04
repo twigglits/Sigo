@@ -55,9 +55,16 @@ struct RequestMessage<'a> {
 #[derive(Deserialize, Debug)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum StreamEvent {
-    MessageStart { message: MessageStartPayload },
-    ContentBlockDelta { delta: ContentDelta },
-    MessageDelta { delta: MessageDeltaPayload, usage: MessageDeltaUsage },
+    MessageStart {
+        message: MessageStartPayload,
+    },
+    ContentBlockDelta {
+        delta: ContentDelta,
+    },
+    MessageDelta {
+        delta: MessageDeltaPayload,
+        usage: MessageDeltaUsage,
+    },
     MessageStop,
     Ping,
     #[serde(other)]
@@ -81,7 +88,9 @@ struct MessageStartUsage {
 #[derive(Deserialize, Debug)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum ContentDelta {
-    TextDelta { text: String },
+    TextDelta {
+        text: String,
+    },
     #[serde(other)]
     Other,
 }
@@ -113,11 +122,21 @@ impl ClaudeBackend for ApiBackend {
         convo: &Conversation,
         prompt: &str,
     ) -> Result<BoxStream<'static, Result<ResponseChunk>>> {
-        let mut messages: Vec<RequestMessage> = convo.messages.iter().map(|m| RequestMessage {
-            role: match m.role { Role::User => "user", Role::Assistant => "assistant" },
-            content: &m.content,
-        }).collect();
-        messages.push(RequestMessage { role: "user", content: prompt });
+        let mut messages: Vec<RequestMessage> = convo
+            .messages
+            .iter()
+            .map(|m| RequestMessage {
+                role: match m.role {
+                    Role::User => "user",
+                    Role::Assistant => "assistant",
+                },
+                content: &m.content,
+            })
+            .collect();
+        messages.push(RequestMessage {
+            role: "user",
+            content: prompt,
+        });
 
         let body = MessagesRequest {
             model: &self.model,
@@ -128,7 +147,8 @@ impl ClaudeBackend for ApiBackend {
         };
 
         let url = format!("{}/v1/messages", self.base_url.trim_end_matches('/'));
-        let resp = self.client
+        let resp = self
+            .client
             .post(&url)
             .header("x-api-key", &self.api_key)
             .header("anthropic-version", ANTHROPIC_VERSION)
@@ -152,48 +172,50 @@ impl ClaudeBackend for ApiBackend {
 
         let event_stream = resp.bytes_stream().eventsource();
         let mut accumulated = AccumulatedUsage::default();
-        let chunks = event_stream.map(move |event| -> Result<Option<ResponseChunk>> {
-            let event = event.map_err(|e| SigoError::Backend(format!("sse: {e}")))?;
-            if event.data.is_empty() {
-                return Ok(None);
-            }
-            let parsed: StreamEvent = serde_json::from_str(&event.data)?;
-            match parsed {
-                StreamEvent::MessageStart { message } => {
-                    accumulated.input_tokens = message.usage.input_tokens;
-                    accumulated.cache_read = message.usage.cache_read_input_tokens;
-                    accumulated.cache_write = message.usage.cache_creation_input_tokens;
-                    Ok(None)
+        let chunks = event_stream
+            .map(move |event| -> Result<Option<ResponseChunk>> {
+                let event = event.map_err(|e| SigoError::Backend(format!("sse: {e}")))?;
+                if event.data.is_empty() {
+                    return Ok(None);
                 }
-                StreamEvent::ContentBlockDelta { delta: ContentDelta::TextDelta { text } } => {
-                    Ok(Some(ResponseChunk::TextDelta(text)))
+                let parsed: StreamEvent = serde_json::from_str(&event.data)?;
+                match parsed {
+                    StreamEvent::MessageStart { message } => {
+                        accumulated.input_tokens = message.usage.input_tokens;
+                        accumulated.cache_read = message.usage.cache_read_input_tokens;
+                        accumulated.cache_write = message.usage.cache_creation_input_tokens;
+                        Ok(None)
+                    }
+                    StreamEvent::ContentBlockDelta {
+                        delta: ContentDelta::TextDelta { text },
+                    } => Ok(Some(ResponseChunk::TextDelta(text))),
+                    StreamEvent::MessageDelta { delta, usage } => {
+                        accumulated.output_tokens = usage.output_tokens;
+                        accumulated.stop_reason = delta.stop_reason;
+                        Ok(None)
+                    }
+                    StreamEvent::MessageStop => {
+                        let u = Usage {
+                            input_tokens: accumulated.input_tokens,
+                            output_tokens: accumulated.output_tokens,
+                            cache_read: accumulated.cache_read,
+                            cache_write: accumulated.cache_write,
+                        };
+                        Ok(Some(ResponseChunk::Done {
+                            usage: u,
+                            stop_reason: accumulated.stop_reason.clone(),
+                        }))
+                    }
+                    _ => Ok(None),
                 }
-                StreamEvent::MessageDelta { delta, usage } => {
-                    accumulated.output_tokens = usage.output_tokens;
-                    accumulated.stop_reason = delta.stop_reason;
-                    Ok(None)
+            })
+            .filter_map(|r| async move {
+                match r {
+                    Ok(Some(c)) => Some(Ok(c)),
+                    Ok(None) => None,
+                    Err(e) => Some(Err(e)),
                 }
-                StreamEvent::MessageStop => {
-                    let u = Usage {
-                        input_tokens: accumulated.input_tokens,
-                        output_tokens: accumulated.output_tokens,
-                        cache_read: accumulated.cache_read,
-                        cache_write: accumulated.cache_write,
-                    };
-                    Ok(Some(ResponseChunk::Done {
-                        usage: u,
-                        stop_reason: accumulated.stop_reason.clone(),
-                    }))
-                }
-                _ => Ok(None),
-            }
-        }).filter_map(|r| async move {
-            match r {
-                Ok(Some(c)) => Some(Ok(c)),
-                Ok(None) => None,
-                Err(e) => Some(Err(e)),
-            }
-        });
+            });
 
         Ok(Box::pin(chunks))
     }

@@ -44,8 +44,12 @@ impl ClaudeCodeBackend {
 #[derive(Deserialize, Debug)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum CcEvent {
-    System { session_id: Option<String> },
-    Assistant { message: CcAssistantMessage },
+    System {
+        session_id: Option<String>,
+    },
+    Assistant {
+        message: CcAssistantMessage,
+    },
     Result {
         #[serde(default)]
         usage: Option<CcUsage>,
@@ -64,7 +68,9 @@ struct CcAssistantMessage {
 #[derive(Deserialize, Debug)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum CcContent {
-    Text { text: String },
+    Text {
+        text: String,
+    },
     #[serde(other)]
     Other,
 }

@@ -20,7 +20,9 @@ pub enum SigoError {
     Auth(String),
 
     #[error("rate limited; retry after {retry_after:?}")]
-    RateLimited { retry_after: Option<std::time::Duration> },
+    RateLimited {
+        retry_after: Option<std::time::Duration>,
+    },
 
     #[error("tokenizer error: {0}")]
     Tokenizer(String),

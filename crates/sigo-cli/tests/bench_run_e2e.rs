@@ -113,11 +113,18 @@ async fn translator_failure_skips_prompt_and_logs_to_errors_jsonl() {
     let out_dir = tmp.path().join("run-out");
 
     let corpus_path = tmp.path().join("corpus.jsonl");
-    std::fs::write(&corpus_path, concat!(
-        r#"{"category":"factual","prompt":"first"}"#, "\n",
-        r#"{"category":"factual","prompt":"second"}"#, "\n",
-        r#"{"category":"factual","prompt":"third"}"#, "\n",
-    )).unwrap();
+    std::fs::write(
+        &corpus_path,
+        concat!(
+            r#"{"category":"factual","prompt":"first"}"#,
+            "\n",
+            r#"{"category":"factual","prompt":"second"}"#,
+            "\n",
+            r#"{"category":"factual","prompt":"third"}"#,
+            "\n",
+        ),
+    )
+    .unwrap();
 
     // Use strict mode: "second" has no EN→ZH mapping, so translate() returns Err.
     let translator = Arc::new(FakeTranslator::new_strict());
@@ -128,14 +135,32 @@ async fn translator_failure_skips_prompt_and_logs_to_errors_jsonl() {
     let backend = Arc::new(FakeBackend::new());
     // Only 2 prompts succeed, each does ZH + EN-control = 4 enqueues total.
     for _ in 0..2 {
-        backend.enqueue_simple("响应。", Usage { input_tokens: 5, output_tokens: 10, cache_read: Some(100), cache_write: Some(20) });
-        backend.enqueue_simple("EN-response.", Usage { input_tokens: 8, output_tokens: 12, cache_read: Some(100), cache_write: Some(20) });
+        backend.enqueue_simple(
+            "响应。",
+            Usage {
+                input_tokens: 5,
+                output_tokens: 10,
+                cache_read: Some(100),
+                cache_write: Some(20),
+            },
+        );
+        backend.enqueue_simple(
+            "EN-response.",
+            Usage {
+                input_tokens: 8,
+                output_tokens: 12,
+                cache_read: Some(100),
+                cache_write: Some(20),
+            },
+        );
     }
 
     let translator_clone = translator.clone();
     let backend_clone = backend.clone();
-    let translator_builder: TranslatorBuilder = Arc::new(move || translator_clone.clone() as Arc<dyn Translator>);
-    let backend_builder: BackendBuilder = Arc::new(move || Ok(backend_clone.clone() as Arc<dyn ClaudeBackend>));
+    let translator_builder: TranslatorBuilder =
+        Arc::new(move || translator_clone.clone() as Arc<dyn Translator>);
+    let backend_builder: BackendBuilder =
+        Arc::new(move || Ok(backend_clone.clone() as Arc<dyn ClaudeBackend>));
 
     let cfg = make_config(jsonl.clone());
     let opts = RunOptions {
@@ -151,8 +176,11 @@ async fn translator_failure_skips_prompt_and_logs_to_errors_jsonl() {
         .expect("runner should not abort on per-prompt failure");
 
     // 2 succeeded → 2 records in rolling JSONL.
-    let line_count = std::fs::read_to_string(&jsonl).unwrap()
-        .lines().filter(|l| !l.trim().is_empty()).count();
+    let line_count = std::fs::read_to_string(&jsonl)
+        .unwrap()
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .count();
     assert_eq!(line_count, 2);
 
     // errors.jsonl exists with exactly one entry for the failed prompt.
@@ -173,10 +201,16 @@ async fn mid_stream_claude_error_marks_incomplete_not_failed() {
     let out_dir = tmp.path().join("run-out");
 
     let corpus_path = tmp.path().join("corpus.jsonl");
-    std::fs::write(&corpus_path, concat!(
-        r#"{"category":"factual","prompt":"first"}"#, "\n",
-        r#"{"category":"factual","prompt":"second"}"#, "\n",
-    )).unwrap();
+    std::fs::write(
+        &corpus_path,
+        concat!(
+            r#"{"category":"factual","prompt":"first"}"#,
+            "\n",
+            r#"{"category":"factual","prompt":"second"}"#,
+            "\n",
+        ),
+    )
+    .unwrap();
 
     let translator = Arc::new(FakeTranslator::new());
     translator.add_en_to_zh("first", "第一");
@@ -186,16 +220,42 @@ async fn mid_stream_claude_error_marks_incomplete_not_failed() {
 
     let backend = Arc::new(FakeBackend::new());
     // Prompt 1: clean ZH + clean EN control.
-    backend.enqueue_simple("响应。", Usage { input_tokens: 5, output_tokens: 10, cache_read: Some(100), cache_write: Some(20) });
-    backend.enqueue_simple("EN-resp.", Usage { input_tokens: 8, output_tokens: 12, cache_read: Some(100), cache_write: Some(20) });
+    backend.enqueue_simple(
+        "响应。",
+        Usage {
+            input_tokens: 5,
+            output_tokens: 10,
+            cache_read: Some(100),
+            cache_write: Some(20),
+        },
+    );
+    backend.enqueue_simple(
+        "EN-resp.",
+        Usage {
+            input_tokens: 8,
+            output_tokens: 12,
+            cache_read: Some(100),
+            cache_write: Some(20),
+        },
+    );
     // Prompt 2: ZH mid-stream error (incomplete) + clean EN control.
     backend.enqueue_error_after_chunk("响应", "simulated mid-stream drop");
-    backend.enqueue_simple("EN-resp.", Usage { input_tokens: 9, output_tokens: 11, cache_read: Some(100), cache_write: Some(20) });
+    backend.enqueue_simple(
+        "EN-resp.",
+        Usage {
+            input_tokens: 9,
+            output_tokens: 11,
+            cache_read: Some(100),
+            cache_write: Some(20),
+        },
+    );
 
     let translator_clone = translator.clone();
     let backend_clone = backend.clone();
-    let translator_builder: TranslatorBuilder = Arc::new(move || translator_clone.clone() as Arc<dyn Translator>);
-    let backend_builder: BackendBuilder = Arc::new(move || Ok(backend_clone.clone() as Arc<dyn ClaudeBackend>));
+    let translator_builder: TranslatorBuilder =
+        Arc::new(move || translator_clone.clone() as Arc<dyn Translator>);
+    let backend_builder: BackendBuilder =
+        Arc::new(move || Ok(backend_clone.clone() as Arc<dyn ClaudeBackend>));
 
     let cfg = make_config(jsonl.clone());
     let opts = RunOptions {
@@ -211,8 +271,11 @@ async fn mid_stream_claude_error_marks_incomplete_not_failed() {
         .expect("runner should not abort on incomplete turn");
 
     // Both records should be in the rolling JSONL (incomplete records are still recorded).
-    let line_count = std::fs::read_to_string(&jsonl).unwrap()
-        .lines().filter(|l| !l.trim().is_empty()).count();
+    let line_count = std::fs::read_to_string(&jsonl)
+        .unwrap()
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .count();
     assert_eq!(line_count, 2);
 
     // errors.jsonl should NOT exist (mid-stream errors are recorded in-band, not as failures).

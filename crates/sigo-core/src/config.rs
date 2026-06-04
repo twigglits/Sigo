@@ -103,13 +103,20 @@ impl Default for ClaudeConfig {
 
 impl Default for ClaudeCodeConfig {
     fn default() -> Self {
-        Self { binary: default_claude_code_binary(), extra_args: vec![] }
+        Self {
+            binary: default_claude_code_binary(),
+            extra_args: vec![],
+        }
     }
 }
 
 impl Default for BenchmarkConfig {
     fn default() -> Self {
-        Self { log_path: None, control_mode: default_control_mode(), bootstrap_seed: default_bootstrap_seed() }
+        Self {
+            log_path: None,
+            control_mode: default_control_mode(),
+            bootstrap_seed: default_bootstrap_seed(),
+        }
     }
 }
 
@@ -124,20 +131,48 @@ impl Default for PricingConfig {
     }
 }
 
-fn default_bootstrap_seed() -> u64 { 0xC0DE }
-fn default_translator_provider() -> String { "ollama".into() }
-fn default_ollama_endpoint() -> String { "http://localhost:11434".into() }
-fn default_translator_model() -> String { "qwen2.5:7b".into() }
-fn default_translator_timeout() -> u64 { 60 }
-fn default_claude_backend() -> String { "api".into() }
-fn default_claude_model() -> String { "claude-sonnet-4-6".into() }
-fn default_claude_max_tokens() -> u32 { 4096 }
-fn default_claude_code_binary() -> String { "claude".into() }
-fn default_control_mode() -> String { "prompt-only".into() }
-fn default_input_per_mtok() -> f64 { 3.0 }
-fn default_output_per_mtok() -> f64 { 15.0 }
-fn default_cache_read_per_mtok() -> f64 { 0.30 }
-fn default_cache_write_per_mtok() -> f64 { 3.75 }
+fn default_bootstrap_seed() -> u64 {
+    0xC0DE
+}
+fn default_translator_provider() -> String {
+    "ollama".into()
+}
+fn default_ollama_endpoint() -> String {
+    "http://localhost:11434".into()
+}
+fn default_translator_model() -> String {
+    "qwen2.5:7b".into()
+}
+fn default_translator_timeout() -> u64 {
+    60
+}
+fn default_claude_backend() -> String {
+    "api".into()
+}
+fn default_claude_model() -> String {
+    "claude-sonnet-4-6".into()
+}
+fn default_claude_max_tokens() -> u32 {
+    4096
+}
+fn default_claude_code_binary() -> String {
+    "claude".into()
+}
+fn default_control_mode() -> String {
+    "prompt-only".into()
+}
+fn default_input_per_mtok() -> f64 {
+    3.0
+}
+fn default_output_per_mtok() -> f64 {
+    15.0
+}
+fn default_cache_read_per_mtok() -> f64 {
+    0.30
+}
+fn default_cache_write_per_mtok() -> f64 {
+    3.75
+}
 
 impl SigoConfig {
     /// Load config with precedence: cwd `./sigo.toml` overrides `$XDG_CONFIG_HOME/sigo/config.toml`,
@@ -196,10 +231,7 @@ impl SigoConfig {
 /// Overlay recognized `SIGO_*` environment variables onto a config. `get` resolves a var
 /// name to its value (inject a fake map in tests; production passes `std::env::var(k).ok()`).
 /// Applied after file merge and before CLI flags, so env beats files but flags beat env.
-pub fn apply_env_overlay(
-    cfg: &mut SigoConfig,
-    get: impl Fn(&str) -> Option<String>,
-) -> Result<()> {
+pub fn apply_env_overlay(cfg: &mut SigoConfig, get: impl Fn(&str) -> Option<String>) -> Result<()> {
     if let Some(v) = get("SIGO_TRANSLATOR_ENDPOINT") {
         cfg.translator.endpoint = v;
     }
@@ -214,7 +246,9 @@ pub fn apply_env_overlay(
     }
     if let Some(v) = get("SIGO_CLAUDE_MAX_TOKENS") {
         cfg.claude.max_tokens = v.parse().map_err(|_| {
-            SigoError::Config(format!("SIGO_CLAUDE_MAX_TOKENS must be a positive integer, got `{v}`"))
+            SigoError::Config(format!(
+                "SIGO_CLAUDE_MAX_TOKENS must be a positive integer, got `{v}`"
+            ))
         })?;
     }
     if let Some(v) = get("SIGO_CONTROL_MODE") {
@@ -242,7 +276,9 @@ fn merge_into(dst: &mut toml::Value, src: toml::Value) {
             for (k, v) in src_t {
                 match dst_t.get_mut(&k) {
                     Some(existing) => merge_into(existing, v),
-                    None => { dst_t.insert(k, v); }
+                    None => {
+                        dst_t.insert(k, v);
+                    }
                 }
             }
         }
@@ -290,11 +326,14 @@ mod tests {
         let c = SigoConfig::default();
         assert!((c.pricing.input_per_mtok - 3.0).abs() < 1e-9);
         assert!((c.pricing.output_per_mtok - 15.0).abs() < 1e-9);
-        let c2: SigoConfig = toml::from_str(r#"
+        let c2: SigoConfig = toml::from_str(
+            r#"
             [pricing]
             input_per_mtok = 15.0
             output_per_mtok = 75.0
-        "#).unwrap();
+        "#,
+        )
+        .unwrap();
         assert!((c2.pricing.input_per_mtok - 15.0).abs() < 1e-9);
         // unset cache rates keep their defaults
         assert!((c2.pricing.cache_read_per_mtok - 0.30).abs() < 1e-9);
@@ -303,10 +342,13 @@ mod tests {
     #[test]
     fn partial_overlay_preserves_unset_fields() {
         let base = toml::Value::try_from(SigoConfig::default()).unwrap();
-        let overlay: toml::Value = toml::from_str(r#"
+        let overlay: toml::Value = toml::from_str(
+            r#"
             [translator]
             model = "qwen3:14b"
-        "#).unwrap();
+        "#,
+        )
+        .unwrap();
         let mut merged = base;
         merge_into(&mut merged, overlay);
         let cfg: SigoConfig = merged.try_into().unwrap();
@@ -332,14 +374,21 @@ mod tests {
         assert_eq!(cfg.translator.endpoint, "http://ollama:11434");
         assert_eq!(cfg.claude.backend, "claude-code");
         assert_eq!(cfg.claude.max_tokens, 8192);
-        assert_eq!(cfg.benchmark.log_path, Some(PathBuf::from("/data/turns.jsonl")));
+        assert_eq!(
+            cfg.benchmark.log_path,
+            Some(PathBuf::from("/data/turns.jsonl"))
+        );
     }
 
     #[test]
     fn env_overlay_overrides_file_values() {
         let mut cfg: SigoConfig = toml::from_str("[translator]\nmodel = \"qwen2.5:3b\"").unwrap();
         apply_env_overlay(&mut cfg, |k| {
-            if k == "SIGO_TRANSLATOR_MODEL" { Some("qwen2.5:7b".to_string()) } else { None }
+            if k == "SIGO_TRANSLATOR_MODEL" {
+                Some("qwen2.5:7b".to_string())
+            } else {
+                None
+            }
         })
         .unwrap();
         assert_eq!(cfg.translator.model, "qwen2.5:7b");
@@ -357,7 +406,11 @@ mod tests {
     fn env_overlay_bad_max_tokens_errors() {
         let mut cfg = SigoConfig::default();
         let res = apply_env_overlay(&mut cfg, |k| {
-            if k == "SIGO_CLAUDE_MAX_TOKENS" { Some("lots".to_string()) } else { None }
+            if k == "SIGO_CLAUDE_MAX_TOKENS" {
+                Some("lots".to_string())
+            } else {
+                None
+            }
         });
         assert!(res.is_err());
     }

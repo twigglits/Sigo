@@ -18,22 +18,38 @@ pub struct FakeTranslator {
 
 impl FakeTranslator {
     pub fn new() -> Self {
-        Self { en_to_zh: Mutex::new(HashMap::new()), zh_to_en: Mutex::new(HashMap::new()), strict: false }
+        Self {
+            en_to_zh: Mutex::new(HashMap::new()),
+            zh_to_en: Mutex::new(HashMap::new()),
+            strict: false,
+        }
     }
     /// Strict mode: returns `Err` for any input not registered via `add_en_to_zh` / `add_zh_to_en`.
     pub fn new_strict() -> Self {
-        Self { en_to_zh: Mutex::new(HashMap::new()), zh_to_en: Mutex::new(HashMap::new()), strict: true }
+        Self {
+            en_to_zh: Mutex::new(HashMap::new()),
+            zh_to_en: Mutex::new(HashMap::new()),
+            strict: true,
+        }
     }
     pub fn add_en_to_zh(&self, en: &str, zh: &str) {
-        self.en_to_zh.lock().unwrap().insert(en.to_string(), zh.to_string());
+        self.en_to_zh
+            .lock()
+            .unwrap()
+            .insert(en.to_string(), zh.to_string());
     }
     pub fn add_zh_to_en(&self, zh: &str, en: &str) {
-        self.zh_to_en.lock().unwrap().insert(zh.to_string(), en.to_string());
+        self.zh_to_en
+            .lock()
+            .unwrap()
+            .insert(zh.to_string(), en.to_string());
     }
 }
 
 impl Default for FakeTranslator {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[async_trait]
@@ -45,7 +61,10 @@ impl Translator for FakeTranslator {
         };
         match map.get(text).cloned() {
             Some(v) => Ok(v),
-            None if self.strict => Err(SigoError::Translator(format!("no mapping for {:?} {:?}", dir, text))),
+            None if self.strict => Err(SigoError::Translator(format!(
+                "no mapping for {:?} {:?}",
+                dir, text
+            ))),
             None => Ok(format!("[mock {:?} {text}]", dir)),
         }
     }

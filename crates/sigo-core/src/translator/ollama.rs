@@ -78,25 +78,37 @@ impl Translator for OllamaTranslator {
         let body = ChatRequest {
             model: &self.model,
             messages: vec![
-                ChatMessage { role: "system", content: system },
-                ChatMessage { role: "user", content: text },
+                ChatMessage {
+                    role: "system",
+                    content: system,
+                },
+                ChatMessage {
+                    role: "user",
+                    content: text,
+                },
             ],
             stream: false,
             options: ChatOptions { temperature: 0.0 },
         };
         let url = format!("{}/api/chat", self.endpoint.trim_end_matches('/'));
-        let resp = self.client
+        let resp = self
+            .client
             .post(&url)
             .json(&body)
             .send()
             .await
-            .map_err(|e| if e.is_timeout() {
-                SigoError::TranslatorTimeout(self.timeout)
-            } else {
-                SigoError::Translator(e.to_string())
+            .map_err(|e| {
+                if e.is_timeout() {
+                    SigoError::TranslatorTimeout(self.timeout)
+                } else {
+                    SigoError::Translator(e.to_string())
+                }
             })?;
         if !resp.status().is_success() {
-            return Err(SigoError::Translator(format!("ollama status {}", resp.status())));
+            return Err(SigoError::Translator(format!(
+                "ollama status {}",
+                resp.status()
+            )));
         }
         let parsed: ChatResponse = resp.json().await?;
         Ok(parsed.message.content)
@@ -114,7 +126,10 @@ mod live_tests {
             "qwen2.5:7b",
             Duration::from_secs(60),
         );
-        let zh = t.translate("Hello, world!", Direction::EnToZh).await.unwrap();
+        let zh = t
+            .translate("Hello, world!", Direction::EnToZh)
+            .await
+            .unwrap();
         assert!(!zh.is_empty());
         let en = t.translate(&zh, Direction::ZhToEn).await.unwrap();
         assert!(en.to_lowercase().contains("hello") || en.to_lowercase().contains("world"));

@@ -1,6 +1,6 @@
+use std::process::Stdio;
 use std::time::Duration;
 use tokio::process::Command;
-use std::process::Stdio;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Outcome {
@@ -13,7 +13,9 @@ pub enum Outcome {
 }
 
 impl Outcome {
-    pub fn is_pass(&self) -> bool { matches!(self, Outcome::Pass) }
+    pub fn is_pass(&self) -> bool {
+        matches!(self, Outcome::Pass)
+    }
     pub fn label(&self) -> &'static str {
         match self {
             Outcome::Pass => "pass",
@@ -52,7 +54,9 @@ fn fenced_blocks(text: &str) -> Vec<String> {
         if line.trim_start().starts_with("```") {
             let mut body = String::new();
             for l in lines.by_ref() {
-                if l.trim_start().starts_with("```") { break; }
+                if l.trim_start().starts_with("```") {
+                    break;
+                }
                 body.push_str(l);
                 body.push('\n');
             }
@@ -67,8 +71,15 @@ fn fenced_blocks(text: &str) -> Vec<String> {
 /// Extract code, run `<code>\n<test>\ncheck(entry_point)` under `python3` with a
 /// hard timeout, and classify the result. Runs untrusted model code: callers
 /// should run inside a throwaway VM/container for untrusted corpora.
-pub async fn evaluate_answer(answer: &str, test: &str, entry_point: &str, timeout: Duration) -> Outcome {
-    let Some(code) = extract_code(answer, entry_point) else { return Outcome::NoCodeExtracted };
+pub async fn evaluate_answer(
+    answer: &str,
+    test: &str,
+    entry_point: &str,
+    timeout: Duration,
+) -> Outcome {
+    let Some(code) = extract_code(answer, entry_point) else {
+        return Outcome::NoCodeExtracted;
+    };
     let dir = match tempfile::tempdir() {
         Ok(d) => d,
         Err(_) => return Outcome::RuntimeError,
@@ -127,7 +138,8 @@ mod tests {
 
     #[test]
     fn picks_block_defining_entry_point() {
-        let ans = "Here:\n```python\nimport os\n```\nand\n```python\ndef foo():\n    return 1\n```\n";
+        let ans =
+            "Here:\n```python\nimport os\n```\nand\n```python\ndef foo():\n    return 1\n```\n";
         let code = extract_code(ans, "foo").unwrap();
         assert!(code.contains("def foo"));
         assert!(!code.contains("import os"));
@@ -158,46 +170,97 @@ mod tests {
     }
 
     fn python3_available() -> bool {
-        std::process::Command::new("python3").arg("--version").output().map(|o| o.status.success()).unwrap_or(false)
+        std::process::Command::new("python3")
+            .arg("--version")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
     }
 
     #[tokio::test]
     async fn passing_solution_scores_pass() {
-        if !python3_available() { eprintln!("skip: no python3"); return; }
+        if !python3_available() {
+            eprintln!("skip: no python3");
+            return;
+        }
         let code = "def add(a, b):\n    return a + b\n";
         let test = "def check(candidate):\n    assert candidate(2, 3) == 5\n";
-        assert_eq!(evaluate_answer(&fence(code), test, "add", std::time::Duration::from_secs(10)).await, Outcome::Pass);
+        assert_eq!(
+            evaluate_answer(
+                &fence(code),
+                test,
+                "add",
+                std::time::Duration::from_secs(10)
+            )
+            .await,
+            Outcome::Pass
+        );
     }
 
     #[tokio::test]
     async fn wrong_solution_scores_assert_fail() {
-        if !python3_available() { eprintln!("skip: no python3"); return; }
+        if !python3_available() {
+            eprintln!("skip: no python3");
+            return;
+        }
         let code = "def add(a, b):\n    return a - b\n";
         let test = "def check(candidate):\n    assert candidate(2, 3) == 5\n";
-        assert_eq!(evaluate_answer(&fence(code), test, "add", std::time::Duration::from_secs(10)).await, Outcome::AssertFail);
+        assert_eq!(
+            evaluate_answer(
+                &fence(code),
+                test,
+                "add",
+                std::time::Duration::from_secs(10)
+            )
+            .await,
+            Outcome::AssertFail
+        );
     }
 
     #[tokio::test]
     async fn syntax_error_scores_compile_error() {
-        if !python3_available() { eprintln!("skip: no python3"); return; }
+        if !python3_available() {
+            eprintln!("skip: no python3");
+            return;
+        }
         let code = "def add(a, b)\n    return a + b\n"; // missing colon
         let test = "def check(candidate):\n    assert candidate(2, 3) == 5\n";
-        assert_eq!(evaluate_answer(&fence(code), test, "add", std::time::Duration::from_secs(10)).await, Outcome::CompileError);
+        assert_eq!(
+            evaluate_answer(
+                &fence(code),
+                test,
+                "add",
+                std::time::Duration::from_secs(10)
+            )
+            .await,
+            Outcome::CompileError
+        );
     }
 
     #[tokio::test]
     async fn infinite_loop_scores_timeout() {
-        if !python3_available() { eprintln!("skip: no python3"); return; }
+        if !python3_available() {
+            eprintln!("skip: no python3");
+            return;
+        }
         let code = "def add(a, b):\n    while True:\n        pass\n";
         let test = "def check(candidate):\n    assert candidate(2, 3) == 5\n";
-        assert_eq!(evaluate_answer(&fence(code), test, "add", std::time::Duration::from_secs(2)).await, Outcome::Timeout);
+        assert_eq!(
+            evaluate_answer(&fence(code), test, "add", std::time::Duration::from_secs(2)).await,
+            Outcome::Timeout
+        );
     }
 
     #[tokio::test]
     async fn no_code_scores_no_code_extracted() {
         let test = "def check(candidate):\n    assert candidate(2, 3) == 5\n";
-        assert_eq!(evaluate_answer("no code", test, "add", std::time::Duration::from_secs(10)).await, Outcome::NoCodeExtracted);
+        assert_eq!(
+            evaluate_answer("no code", test, "add", std::time::Duration::from_secs(10)).await,
+            Outcome::NoCodeExtracted
+        );
     }
 
-    fn fence(code: &str) -> String { format!("```python\n{code}```\n") }
+    fn fence(code: &str) -> String {
+        format!("```python\n{code}```\n")
+    }
 }

@@ -33,7 +33,10 @@ pub async fn roundtrip_fidelity(
     original_en: &str,
     zh_prompt: &str,
 ) -> Option<u8> {
-    let back = translator.translate(zh_prompt, Direction::ZhToEn).await.ok()?;
+    let back = translator
+        .translate(zh_prompt, Direction::ZhToEn)
+        .await
+        .ok()?;
     judge.score(original_en, &back).await.ok()
 }
 
@@ -49,18 +52,36 @@ pub struct OllamaJudge {
 }
 
 #[derive(Serialize)]
-struct ChatRequest<'a> { model: &'a str, messages: Vec<Msg<'a>>, stream: bool }
+struct ChatRequest<'a> {
+    model: &'a str,
+    messages: Vec<Msg<'a>>,
+    stream: bool,
+}
 #[derive(Serialize)]
-struct Msg<'a> { role: &'a str, content: &'a str }
+struct Msg<'a> {
+    role: &'a str,
+    content: &'a str,
+}
 #[derive(Deserialize)]
-struct ChatResponse { message: RespMsg }
+struct ChatResponse {
+    message: RespMsg,
+}
 #[derive(Deserialize)]
-struct RespMsg { content: String }
+struct RespMsg {
+    content: String,
+}
 
 impl OllamaJudge {
     pub fn new(endpoint: impl Into<String>, model: impl Into<String>, timeout: Duration) -> Self {
-        let client = reqwest::Client::builder().timeout(timeout).build().expect("reqwest builds");
-        Self { client, endpoint: endpoint.into(), model: model.into() }
+        let client = reqwest::Client::builder()
+            .timeout(timeout)
+            .build()
+            .expect("reqwest builds");
+        Self {
+            client,
+            endpoint: endpoint.into(),
+            model: model.into(),
+        }
     }
 }
 
@@ -71,20 +92,38 @@ impl Judge for OllamaJudge {
         let body = ChatRequest {
             model: &self.model,
             messages: vec![
-                Msg { role: "system", content: RUBRIC },
-                Msg { role: "user", content: &user },
+                Msg {
+                    role: "system",
+                    content: RUBRIC,
+                },
+                Msg {
+                    role: "user",
+                    content: &user,
+                },
             ],
             stream: false,
         };
         let url = format!("{}/api/chat", self.endpoint.trim_end_matches('/'));
-        let resp = self.client.post(&url).json(&body).send().await
+        let resp = self
+            .client
+            .post(&url)
+            .json(&body)
+            .send()
+            .await
             .map_err(|e| SigoError::Eval(format!("judge request: {e}")))?;
         if !resp.status().is_success() {
             return Err(SigoError::Eval(format!("judge status {}", resp.status())));
         }
-        let parsed: ChatResponse = resp.json().await.map_err(|e| SigoError::Eval(e.to_string()))?;
-        parse_score(&parsed.message.content)
-            .ok_or_else(|| SigoError::Eval(format!("unparseable judge reply: {:?}", parsed.message.content)))
+        let parsed: ChatResponse = resp
+            .json()
+            .await
+            .map_err(|e| SigoError::Eval(e.to_string()))?;
+        parse_score(&parsed.message.content).ok_or_else(|| {
+            SigoError::Eval(format!(
+                "unparseable judge reply: {:?}",
+                parsed.message.content
+            ))
+        })
     }
 }
 

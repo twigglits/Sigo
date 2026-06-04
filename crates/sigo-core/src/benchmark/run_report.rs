@@ -56,7 +56,11 @@ pub struct RunReport {
 /// Compute deltas as a percent of the EN side: `(zh - en) / en * 100`.
 /// Returns `None` if `en == 0.0`, so callers can decide how to render N/A.
 pub fn delta_pct(zh: f64, en: f64) -> Option<f64> {
-    if en == 0.0 { None } else { Some((zh - en) / en * 100.0) }
+    if en == 0.0 {
+        None
+    } else {
+        Some((zh - en) / en * 100.0)
+    }
 }
 
 fn verdict(delta: Option<f64>) -> &'static str {
@@ -86,17 +90,41 @@ pub fn summarize_run(
     let n_incomplete = rows.iter().filter(|(r, _)| r.incomplete).count();
 
     let mean = |sel: &dyn Fn(&TurnRecord) -> f64| -> f64 {
-        if rows.is_empty() { 0.0 } else { rows.iter().map(|(r, _)| sel(r)).sum::<f64>() / n }
+        if rows.is_empty() {
+            0.0
+        } else {
+            rows.iter().map(|(r, _)| sel(r)).sum::<f64>() / n
+        }
     };
 
-    let zh_input  = |r: &TurnRecord| r.chinese_prompt_tokens_reported.unwrap_or(0) as f64;
-    let zh_cr     = |r: &TurnRecord| r.cache_read_tokens_reported.unwrap_or(0) as f64;
-    let zh_cw     = |r: &TurnRecord| r.cache_write_tokens_reported.unwrap_or(0) as f64;
+    let zh_input = |r: &TurnRecord| r.chinese_prompt_tokens_reported.unwrap_or(0) as f64;
+    let zh_cr = |r: &TurnRecord| r.cache_read_tokens_reported.unwrap_or(0) as f64;
+    let zh_cw = |r: &TurnRecord| r.cache_write_tokens_reported.unwrap_or(0) as f64;
     let zh_output = |r: &TurnRecord| r.chinese_response_tokens_reported.unwrap_or(0) as f64;
-    let en_input  = |r: &TurnRecord| r.english_control_run.as_ref().map(|c| c.prompt_tokens_reported as f64).unwrap_or(0.0);
-    let en_cr     = |r: &TurnRecord| r.english_control_run.as_ref().and_then(|c| c.cache_read_tokens_reported).unwrap_or(0) as f64;
-    let en_cw     = |r: &TurnRecord| r.english_control_run.as_ref().and_then(|c| c.cache_write_tokens_reported).unwrap_or(0) as f64;
-    let en_output = |r: &TurnRecord| r.english_control_run.as_ref().map(|c| c.response_tokens_reported as f64).unwrap_or(0.0);
+    let en_input = |r: &TurnRecord| {
+        r.english_control_run
+            .as_ref()
+            .map(|c| c.prompt_tokens_reported as f64)
+            .unwrap_or(0.0)
+    };
+    let en_cr = |r: &TurnRecord| {
+        r.english_control_run
+            .as_ref()
+            .and_then(|c| c.cache_read_tokens_reported)
+            .unwrap_or(0) as f64
+    };
+    let en_cw = |r: &TurnRecord| {
+        r.english_control_run
+            .as_ref()
+            .and_then(|c| c.cache_write_tokens_reported)
+            .unwrap_or(0) as f64
+    };
+    let en_output = |r: &TurnRecord| {
+        r.english_control_run
+            .as_ref()
+            .map(|c| c.response_tokens_reported as f64)
+            .unwrap_or(0.0)
+    };
 
     let zh_total = |r: &TurnRecord| zh_input(r) + zh_cr(r) + zh_cw(r);
     let en_total = |r: &TurnRecord| en_input(r) + en_cr(r) + en_cw(r);
@@ -105,21 +133,24 @@ pub fn summarize_run(
     for (r, cat) in rows {
         per_category.entry(cat.clone()).or_default().push(r);
     }
-    let per_category = per_category.into_iter().map(|(cat, recs)| {
-        let nc = recs.len() as f64;
-        let cmean = |sel: &dyn Fn(&TurnRecord) -> f64|
-            recs.iter().map(|r| sel(r)).sum::<f64>() / nc;
-        let stats = CategoryStats {
-            n: recs.len(),
-            mean_en_input:  cmean(&en_input),
-            mean_zh_input:  cmean(&zh_input),
-            mean_en_total:  cmean(&en_total),
-            mean_zh_total:  cmean(&zh_total),
-            mean_en_output: cmean(&en_output),
-            mean_zh_output: cmean(&zh_output),
-        };
-        (cat, stats)
-    }).collect();
+    let per_category = per_category
+        .into_iter()
+        .map(|(cat, recs)| {
+            let nc = recs.len() as f64;
+            let cmean =
+                |sel: &dyn Fn(&TurnRecord) -> f64| recs.iter().map(|r| sel(r)).sum::<f64>() / nc;
+            let stats = CategoryStats {
+                n: recs.len(),
+                mean_en_input: cmean(&en_input),
+                mean_zh_input: cmean(&zh_input),
+                mean_en_total: cmean(&en_total),
+                mean_zh_total: cmean(&zh_total),
+                mean_en_output: cmean(&en_output),
+                mean_zh_output: cmean(&zh_output),
+            };
+            (cat, stats)
+        })
+        .collect();
 
     RunSummary {
         run_id,
@@ -136,13 +167,13 @@ pub fn summarize_run(
         n_failed,
         mean_zh_input_reported: mean(&zh_input),
         mean_en_input_reported: mean(&en_input),
-        mean_zh_total_input:    mean(&zh_total),
-        mean_en_total_input:    mean(&en_total),
+        mean_zh_total_input: mean(&zh_total),
+        mean_en_total_input: mean(&en_total),
         mean_zh_output_reported: mean(&zh_output),
         mean_en_output_reported: mean(&en_output),
         mean_zh_prompt_local: mean(&(|r| r.chinese_prompt_tokens_local as f64)),
         mean_en_prompt_local: mean(&(|r| r.english_prompt_tokens_local as f64)),
-        mean_turn_total_ms:   mean(&(|r| r.turn_total_ms as f64)),
+        mean_turn_total_ms: mean(&(|r| r.turn_total_ms as f64)),
         per_category,
     }
 }
@@ -154,10 +185,23 @@ pub fn build_markdown(report: &RunReport) -> String {
     let _ = writeln!(out, "# Sigo bench run — `{}`", s.run_id);
     let _ = writeln!(out);
     let _ = writeln!(out, "- started: `{}`", s.started_at.to_rfc3339());
-    let _ = writeln!(out, "- finished: `{}` (wall {} ms)", s.finished_at.to_rfc3339(), s.wall_ms);
-    let _ = writeln!(out, "- backend: `{:?}`  · claude_model: `{}`  · translator_model: `{}`", s.backend, s.claude_model, s.translator_model);
+    let _ = writeln!(
+        out,
+        "- finished: `{}` (wall {} ms)",
+        s.finished_at.to_rfc3339(),
+        s.wall_ms
+    );
+    let _ = writeln!(
+        out,
+        "- backend: `{:?}`  · claude_model: `{}`  · translator_model: `{}`",
+        s.backend, s.claude_model, s.translator_model
+    );
     let _ = writeln!(out, "- corpus: `{}`", s.corpus_source);
-    let _ = writeln!(out, "- attempted={} succeeded={} incomplete={} failed={}", s.n_attempted, s.n_succeeded, s.n_incomplete, s.n_failed);
+    let _ = writeln!(
+        out,
+        "- attempted={} succeeded={} incomplete={} failed={}",
+        s.n_attempted, s.n_succeeded, s.n_incomplete, s.n_failed
+    );
     let _ = writeln!(out, "- control_mode: `full`");
     let _ = writeln!(out);
     let _ = writeln!(out, "## Headline");
@@ -166,27 +210,74 @@ pub fn build_markdown(report: &RunReport) -> String {
     let _ = writeln!(out, "|---|---:|---:|---:|---|");
     let row = |label: &str, en: f64, zh: f64, out: &mut String| {
         let d = delta_pct(zh, en);
-        let dstr = d.map(|v| format!("{:+.1}%", v)).unwrap_or_else(|| "n/a".into());
-        let _ = writeln!(out, "| {label} | {en:.1} | {zh:.1} | {dstr} | {} |", verdict(d));
+        let dstr = d
+            .map(|v| format!("{:+.1}%", v))
+            .unwrap_or_else(|| "n/a".into());
+        let _ = writeln!(
+            out,
+            "| {label} | {en:.1} | {zh:.1} | {dstr} | {} |",
+            verdict(d)
+        );
     };
-    row("reported input tokens (uncached)", s.mean_en_input_reported, s.mean_zh_input_reported, &mut out);
-    row("total input (input + cache_read + cache_write)", s.mean_en_total_input, s.mean_zh_total_input, &mut out);
-    row("reported output tokens", s.mean_en_output_reported, s.mean_zh_output_reported, &mut out);
-    row("local-tokenizer prompt count", s.mean_en_prompt_local, s.mean_zh_prompt_local, &mut out);
+    row(
+        "reported input tokens (uncached)",
+        s.mean_en_input_reported,
+        s.mean_zh_input_reported,
+        &mut out,
+    );
+    row(
+        "total input (input + cache_read + cache_write)",
+        s.mean_en_total_input,
+        s.mean_zh_total_input,
+        &mut out,
+    );
+    row(
+        "reported output tokens",
+        s.mean_en_output_reported,
+        s.mean_zh_output_reported,
+        &mut out,
+    );
+    row(
+        "local-tokenizer prompt count",
+        s.mean_en_prompt_local,
+        s.mean_zh_prompt_local,
+        &mut out,
+    );
     let _ = writeln!(out);
     let _ = writeln!(out, "- mean wall per turn: {:.0} ms", s.mean_turn_total_ms);
     let _ = writeln!(out);
 
     let _ = writeln!(out, "## Per-category");
     let _ = writeln!(out);
-    let _ = writeln!(out, "| Category | N | EN-in | ZH-in | Δ% | EN-tot | ZH-tot | Δ% | EN-out | ZH-out | Δ% |");
-    let _ = writeln!(out, "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|");
+    let _ = writeln!(
+        out,
+        "| Category | N | EN-in | ZH-in | Δ% | EN-tot | ZH-tot | Δ% | EN-out | ZH-out | Δ% |"
+    );
+    let _ = writeln!(
+        out,
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|"
+    );
     for (cat, cs) in &s.per_category {
-        let di = delta_pct(cs.mean_zh_input, cs.mean_en_input).map(|v| format!("{:+.1}%", v)).unwrap_or_else(|| "n/a".into());
-        let dt = delta_pct(cs.mean_zh_total, cs.mean_en_total).map(|v| format!("{:+.1}%", v)).unwrap_or_else(|| "n/a".into());
-        let do_ = delta_pct(cs.mean_zh_output, cs.mean_en_output).map(|v| format!("{:+.1}%", v)).unwrap_or_else(|| "n/a".into());
-        let _ = writeln!(out, "| {cat} | {} | {:.1} | {:.1} | {di} | {:.1} | {:.1} | {dt} | {:.1} | {:.1} | {do_} |",
-            cs.n, cs.mean_en_input, cs.mean_zh_input, cs.mean_en_total, cs.mean_zh_total, cs.mean_en_output, cs.mean_zh_output);
+        let di = delta_pct(cs.mean_zh_input, cs.mean_en_input)
+            .map(|v| format!("{:+.1}%", v))
+            .unwrap_or_else(|| "n/a".into());
+        let dt = delta_pct(cs.mean_zh_total, cs.mean_en_total)
+            .map(|v| format!("{:+.1}%", v))
+            .unwrap_or_else(|| "n/a".into());
+        let do_ = delta_pct(cs.mean_zh_output, cs.mean_en_output)
+            .map(|v| format!("{:+.1}%", v))
+            .unwrap_or_else(|| "n/a".into());
+        let _ = writeln!(
+            out,
+            "| {cat} | {} | {:.1} | {:.1} | {di} | {:.1} | {:.1} | {dt} | {:.1} | {:.1} | {do_} |",
+            cs.n,
+            cs.mean_en_input,
+            cs.mean_zh_input,
+            cs.mean_en_total,
+            cs.mean_zh_total,
+            cs.mean_en_output,
+            cs.mean_zh_output
+        );
     }
     let _ = writeln!(out);
 
@@ -207,8 +298,12 @@ pub fn build_markdown(report: &RunReport) -> String {
 pub fn build_csv(report: &RunReport) -> String {
     let mut out = String::new();
     out.push_str("run_id,prompt_index,category,prompt,");
-    out.push_str("zh_input_reported,zh_output_reported,zh_cache_read,zh_cache_write,zh_total_input,");
-    out.push_str("en_input_reported,en_output_reported,en_cache_read,en_cache_write,en_total_input,");
+    out.push_str(
+        "zh_input_reported,zh_output_reported,zh_cache_read,zh_cache_write,zh_total_input,",
+    );
+    out.push_str(
+        "en_input_reported,en_output_reported,en_cache_read,en_cache_write,en_total_input,",
+    );
     out.push_str("zh_prompt_local,en_prompt_local,zh_response_local,");
     out.push_str("delta_input_pct,delta_total_input_pct,delta_output_pct,");
     out.push_str("translation_in_ms,translation_out_ms_total,claude_total_ms,turn_total_ms,");
@@ -225,11 +320,32 @@ pub fn build_csv(report: &RunReport) -> String {
         let en_cw = ec.and_then(|c| c.cache_write_tokens_reported).unwrap_or(0);
         let en_total = en_input + en_cr + en_cw;
 
-        let di = if en_input > 0 { format!("{:+.2}", (zh_input as f64 - en_input as f64) / en_input as f64 * 100.0) } else { "".into() };
-        let dt = if en_total > 0 { format!("{:+.2}", (zh_total as f64 - en_total as f64) / en_total as f64 * 100.0) } else { "".into() };
+        let di = if en_input > 0 {
+            format!(
+                "{:+.2}",
+                (zh_input as f64 - en_input as f64) / en_input as f64 * 100.0
+            )
+        } else {
+            "".into()
+        };
+        let dt = if en_total > 0 {
+            format!(
+                "{:+.2}",
+                (zh_total as f64 - en_total as f64) / en_total as f64 * 100.0
+            )
+        } else {
+            "".into()
+        };
         let zh_out = r.chinese_response_tokens_reported.unwrap_or(0);
         let en_out = ec.map(|c| c.response_tokens_reported).unwrap_or(0);
-        let do_ = if en_out > 0 { format!("{:+.2}", (zh_out as f64 - en_out as f64) / en_out as f64 * 100.0) } else { "".into() };
+        let do_ = if en_out > 0 {
+            format!(
+                "{:+.2}",
+                (zh_out as f64 - en_out as f64) / en_out as f64 * 100.0
+            )
+        } else {
+            "".into()
+        };
 
         let _ = writeln!(out,
             "{run},{idx},{cat},{prompt},{zh_input},{zh_out},{zh_cr},{zh_cw},{zh_total},{en_input},{en_out},{en_cr},{en_cw},{en_total},{zhpl},{enpl},{zhrl},{di},{dt},{do_},{tin},{toutsum},{cmt},{ttm},{inc},{errs}",
@@ -332,8 +448,8 @@ mod tests {
     fn verdict_brackets_at_five_percent() {
         assert_eq!(verdict(Some(-4.99)), "wash");
         assert_eq!(verdict(Some(-5.01)), "ZH wins");
-        assert_eq!(verdict(Some(5.01)),  "EN wins");
-        assert_eq!(verdict(None),        "n/a");
+        assert_eq!(verdict(Some(5.01)), "EN wins");
+        assert_eq!(verdict(None), "n/a");
     }
 
     #[test]
@@ -341,18 +457,29 @@ mod tests {
         let started = Utc.with_ymd_and_hms(2026, 5, 26, 12, 0, 0).unwrap();
         let finished = Utc.with_ymd_and_hms(2026, 5, 26, 12, 1, 30).unwrap();
         let rows = vec![
-            (rec("", 10, 8,  12, 200, 90000, 0,  18, 250, 90000, 0, false), "coding".to_string()),
-            (rec("", 14, 12, 16, 240, 91000, 0,  22, 280, 91000, 0, false), "coding".to_string()),
-            (rec("", 6,  5,  7,  100, 89000, 0,  10, 150, 89000, 0, false), "prose".to_string()),
+            (
+                rec("", 10, 8, 12, 200, 90000, 0, 18, 250, 90000, 0, false),
+                "coding".to_string(),
+            ),
+            (
+                rec("", 14, 12, 16, 240, 91000, 0, 22, 280, 91000, 0, false),
+                "coding".to_string(),
+            ),
+            (
+                rec("", 6, 5, 7, 100, 89000, 0, 10, 150, 89000, 0, false),
+                "prose".to_string(),
+            ),
         ];
         let s = summarize_run(
             "test-run".into(),
-            started, finished,
+            started,
+            finished,
             BackendKind::Api,
             "claude-sonnet-4-6".into(),
             "qwen3".into(),
             "bundled".into(),
-            3, 0,
+            3,
+            0,
             &rows,
         );
         assert_eq!(s.n_attempted, 3);
@@ -372,17 +499,25 @@ mod tests {
         let started = Utc.with_ymd_and_hms(2026, 5, 26, 12, 0, 0).unwrap();
         let finished = Utc.with_ymd_and_hms(2026, 5, 26, 12, 1, 30).unwrap();
         let rows = vec![
-            (rec("", 10, 8,  12, 200, 90000, 0,  18, 250, 90000, 0, false), "coding".to_string()),
-            (rec("", 6,  5,  7,  100, 89000, 0,  10, 150, 89000, 0, false), "prose".to_string()),
+            (
+                rec("", 10, 8, 12, 200, 90000, 0, 18, 250, 90000, 0, false),
+                "coding".to_string(),
+            ),
+            (
+                rec("", 6, 5, 7, 100, 89000, 0, 10, 150, 89000, 0, false),
+                "prose".to_string(),
+            ),
         ];
         let summary = summarize_run(
             "2026-05-26T120000-test".into(),
-            started, finished,
+            started,
+            finished,
             BackendKind::ClaudeCode,
             "claude-sonnet-4-6".into(),
             "qwen3".into(),
             "bundled".into(),
-            2, 0,
+            2,
+            0,
             &rows,
         );
         let report = RunReport { summary, rows };
@@ -395,10 +530,27 @@ mod tests {
         let started = Utc.with_ymd_and_hms(2026, 5, 26, 12, 0, 0).unwrap();
         let finished = Utc.with_ymd_and_hms(2026, 5, 26, 12, 1, 30).unwrap();
         let rows = vec![
-            (rec("", 10, 8,  12, 200, 90000, 0,  18, 250, 90000, 0, false), "coding".to_string()),
-            (rec("", 6,  5,  7,  100, 89000, 0,  10, 150, 89000, 0, false), "prose".to_string()),
+            (
+                rec("", 10, 8, 12, 200, 90000, 0, 18, 250, 90000, 0, false),
+                "coding".to_string(),
+            ),
+            (
+                rec("", 6, 5, 7, 100, 89000, 0, 10, 150, 89000, 0, false),
+                "prose".to_string(),
+            ),
         ];
-        let summary = summarize_run("rid".into(), started, finished, BackendKind::Api, "m".into(), "t".into(), "src".into(), 2, 0, &rows);
+        let summary = summarize_run(
+            "rid".into(),
+            started,
+            finished,
+            BackendKind::Api,
+            "m".into(),
+            "t".into(),
+            "src".into(),
+            2,
+            0,
+            &rows,
+        );
         let report = RunReport { summary, rows };
         let csv = build_csv(&report);
         let lines: Vec<&str> = csv.lines().collect();
@@ -413,12 +565,26 @@ mod tests {
         let started = Utc.with_ymd_and_hms(2026, 5, 26, 12, 0, 0).unwrap();
         let finished = Utc.with_ymd_and_hms(2026, 5, 26, 12, 1, 30).unwrap();
         let rows = vec![
-            (rec("", 10, 8, 12, 200, 90000, 0, 18, 250, 90000, 0, false), "coding".to_string()),
-            (rec("", 6,  5,  7, 100, 89000, 0, 10, 150, 89000, 0, false), "prose".to_string()),
+            (
+                rec("", 10, 8, 12, 200, 90000, 0, 18, 250, 90000, 0, false),
+                "coding".to_string(),
+            ),
+            (
+                rec("", 6, 5, 7, 100, 89000, 0, 10, 150, 89000, 0, false),
+                "prose".to_string(),
+            ),
         ];
         let summary = summarize_run(
-            "rid".into(), started, finished, BackendKind::Api,
-            "m".into(), "t".into(), "src".into(), 2, 0, &rows,
+            "rid".into(),
+            started,
+            finished,
+            BackendKind::Api,
+            "m".into(),
+            "t".into(),
+            "src".into(),
+            2,
+            0,
+            &rows,
         );
         let report = RunReport { summary, rows };
         let csv = build_csv(&report);

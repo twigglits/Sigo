@@ -6,12 +6,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use sigo_core::{
-    build_csv, build_markdown, load_corpus, summarize_run, BackendKind, BenchmarkSink,
-    ClaudeBackend, TokenizerProxy, ControlMode, CorpusEntry, JsonlSink, OllamaTranslator,
-    Orchestrator, OrchestratorConfig, OutputSink, RunReport, SigoConfig, Tokenizer, Translator,
-    TurnRecord,
-    load_coding_corpus, summarize_eval, build_eval_markdown, build_eval_csv, evaluate_answer,
-    roundtrip_fidelity, OllamaJudge, ArmCost, ArmEval, TaskEval,
+    build_csv, build_eval_csv, build_eval_markdown, build_markdown, evaluate_answer,
+    load_coding_corpus, load_corpus, roundtrip_fidelity, summarize_eval, summarize_run, ArmCost,
+    ArmEval, BackendKind, BenchmarkSink, ClaudeBackend, ControlMode, CorpusEntry, JsonlSink,
+    OllamaJudge, OllamaTranslator, Orchestrator, OrchestratorConfig, OutputSink, RunReport,
+    SigoConfig, TaskEval, Tokenizer, TokenizerProxy, Translator, TurnRecord,
 };
 
 use crate::repl::build_backend;
@@ -40,9 +39,8 @@ pub async fn run(cfg: &SigoConfig, opts: RunOptions) -> Result<()> {
         )) as Arc<dyn Translator>
     });
     let cfg_for_be = cfg.clone();
-    let backend_builder: BackendBuilder = Arc::new(move || {
-        build_backend(backend_kind, &cfg_for_be)
-    });
+    let backend_builder: BackendBuilder =
+        Arc::new(move || build_backend(backend_kind, &cfg_for_be));
     run_with_builders(cfg, opts, translator_builder, backend_builder).await
 }
 
@@ -60,7 +58,14 @@ pub async fn run_with_builders(
         .context("pre-flight: failed to construct backend (check config and env vars)")?;
 
     if opts.eval.as_deref() == Some("coding") {
-        return run_coding_eval(cfg, &opts, backend_kind, &translator_builder, &backend_builder).await;
+        return run_coding_eval(
+            cfg,
+            &opts,
+            backend_kind,
+            &translator_builder,
+            &backend_builder,
+        )
+        .await;
     }
     if let Some(other) = opts.eval.as_deref() {
         anyhow::bail!("unknown --eval mode `{other}` (only `coding` is supported)");
@@ -84,12 +89,10 @@ pub async fn run_with_builders(
     std::fs::create_dir_all(&out_dir)
         .with_context(|| format!("create out_dir {}", out_dir.display()))?;
 
-    let tokenizer: Arc<dyn Tokenizer> = Arc::new(
-        TokenizerProxy::new().context("failed to initialize o200k_base proxy tokenizer")?,
-    );
-    let sink: Arc<dyn BenchmarkSink> = Arc::new(
-        JsonlSink::open(cfg.resolved_log_path()).context("failed to open benchmark log")?,
-    );
+    let tokenizer: Arc<dyn Tokenizer> =
+        Arc::new(TokenizerProxy::new().context("failed to initialize o200k_base proxy tokenizer")?);
+    let sink: Arc<dyn BenchmarkSink> =
+        Arc::new(JsonlSink::open(cfg.resolved_log_path()).context("failed to open benchmark log")?);
 
     let errors_path = out_dir.join("errors.jsonl");
     let mut errors_handle: Option<std::fs::File> = None;
@@ -145,15 +148,17 @@ pub async fn run_with_builders(
                             .with_context(|| format!("open {}", errors_path.display()))?,
                     );
                 }
-                let handle = errors_handle.as_mut().expect("errors_handle just initialised");
-                write_error_line(handle, i + 1, entry, "claude_open_or_translator", &e.to_string())?;
-                eprintln!(
-                    "[{}/{}] {} · FAILED: {}",
+                let handle = errors_handle
+                    .as_mut()
+                    .expect("errors_handle just initialised");
+                write_error_line(
+                    handle,
                     i + 1,
-                    total,
-                    entry.category,
-                    e
-                );
+                    entry,
+                    "claude_open_or_translator",
+                    &e.to_string(),
+                )?;
+                eprintln!("[{}/{}] {} · FAILED: {}", i + 1, total, entry.category, e);
             }
         }
     }
@@ -320,11 +325,16 @@ async fn run_coding_eval(
         .map(|o| o.status.success())
         .unwrap_or(false);
     if !python_ok {
-        anyhow::bail!("python3 not found on PATH — required for `--eval coding` (run `sigo doctor` to check)");
+        anyhow::bail!(
+            "python3 not found on PATH — required for `--eval coding` (run `sigo doctor` to check)"
+        );
     }
 
     let run_id = build_run_id(opts.label.as_deref());
-    let out_dir = opts.out_dir.clone().unwrap_or_else(|| default_run_dir(&run_id));
+    let out_dir = opts
+        .out_dir
+        .clone()
+        .unwrap_or_else(|| default_run_dir(&run_id));
     std::fs::create_dir_all(&out_dir)
         .with_context(|| format!("create out_dir {}", out_dir.display()))?;
 
@@ -338,14 +348,12 @@ async fn run_coding_eval(
         anyhow::bail!("coding corpus is empty after applying --limit");
     }
 
-    let tokenizer: Arc<dyn Tokenizer> = Arc::new(
-        TokenizerProxy::new().context("failed to initialize o200k_base proxy tokenizer")?,
-    );
+    let tokenizer: Arc<dyn Tokenizer> =
+        Arc::new(TokenizerProxy::new().context("failed to initialize o200k_base proxy tokenizer")?);
     // Rolling audit log: the orchestrator appends each ZH TurnRecord here, same as a
     // normal bench run. The structured benchmark output is eval_report.{md,csv} below.
-    let sink: Arc<dyn BenchmarkSink> = Arc::new(
-        JsonlSink::open(cfg.resolved_log_path()).context("failed to open benchmark log")?,
-    );
+    let sink: Arc<dyn BenchmarkSink> =
+        Arc::new(JsonlSink::open(cfg.resolved_log_path()).context("failed to open benchmark log")?);
     let judge = OllamaJudge::new(
         &cfg.translator.endpoint,
         &cfg.translator.model,
@@ -389,8 +397,13 @@ async fn run_coding_eval(
         };
 
         // ZH arm answer = raw Chinese response (code preserved untranslated).
-        let zh_outcome =
-            evaluate_answer(&record.chinese_response, &task.test, &task.entry_point, exec_timeout).await;
+        let zh_outcome = evaluate_answer(
+            &record.chinese_response,
+            &task.test,
+            &task.entry_point,
+            exec_timeout,
+        )
+        .await;
         // EN arm answer = the English control run's response.
         let en_answer = match record.english_control_run.as_ref() {
             Some(c) => c.english_response.as_str(),
@@ -399,7 +412,8 @@ async fn run_coding_eval(
                 ""
             }
         };
-        let en_outcome = evaluate_answer(en_answer, &task.test, &task.entry_point, exec_timeout).await;
+        let en_outcome =
+            evaluate_answer(en_answer, &task.test, &task.entry_point, exec_timeout).await;
 
         let zh_in_proxy = tokenizer.count_tokens(&record.chinese_prompt).unwrap_or(0);
         let en_in_proxy = tokenizer.count_tokens(&task.prompt).unwrap_or(0);
@@ -421,20 +435,38 @@ async fn run_coding_eval(
             })
             .unwrap_or_default();
 
-        let fidelity =
-            roundtrip_fidelity(translator.as_ref(), &judge, &task.prompt, &record.chinese_prompt).await;
+        let fidelity = roundtrip_fidelity(
+            translator.as_ref(),
+            &judge,
+            &task.prompt,
+            &record.chinese_prompt,
+        )
+        .await;
 
         println!(
             "[{}/{}] {} · en={} zh={} · zh-in={} en-in={}",
-            i + 1, total, task.task_id, en_outcome.label(), zh_outcome.label(),
-            zh_cost.input, en_cost.input
+            i + 1,
+            total,
+            task.task_id,
+            en_outcome.label(),
+            zh_outcome.label(),
+            zh_cost.input,
+            en_cost.input
         );
 
         evals.push(TaskEval {
             task_id: task.task_id.clone(),
             category: task.category.clone(),
-            en: ArmEval { outcome: en_outcome, cost: en_cost, proxy_in: en_in_proxy },
-            zh: ArmEval { outcome: zh_outcome, cost: zh_cost, proxy_in: zh_in_proxy },
+            en: ArmEval {
+                outcome: en_outcome,
+                cost: en_cost,
+                proxy_in: en_in_proxy,
+            },
+            zh: ArmEval {
+                outcome: zh_outcome,
+                cost: zh_cost,
+                proxy_in: zh_in_proxy,
+            },
             fidelity,
         });
     }

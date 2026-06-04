@@ -1,9 +1,9 @@
+use sigo_core::{
+    BackendKind, CollectSink, ControlMode, FakeBackend, FakeTranslator, MemorySink, Orchestrator,
+    OrchestratorConfig, ResponseChunk, Tokenizer, TokenizerProxy, Usage,
+};
 use std::sync::Arc;
 use std::time::Duration;
-use sigo_core::{
-    BackendKind, TokenizerProxy, CollectSink, ControlMode, FakeBackend, FakeTranslator,
-    MemorySink, Orchestrator, OrchestratorConfig, ResponseChunk, Tokenizer, Usage,
-};
 
 #[tokio::test]
 async fn multi_turn_session_advances_history_and_records_each_turn() {
@@ -14,8 +14,22 @@ async fn multi_turn_session_advances_history_and_records_each_turn() {
     translator.add_zh_to_en("再乓。", "Pong again.");
 
     let backend = Arc::new(FakeBackend::new());
-    backend.enqueue_simple("乓。", Usage { input_tokens: 1, output_tokens: 1, ..Default::default() });
-    backend.enqueue_simple("再乓。", Usage { input_tokens: 5, output_tokens: 1, ..Default::default() });
+    backend.enqueue_simple(
+        "乓。",
+        Usage {
+            input_tokens: 1,
+            output_tokens: 1,
+            ..Default::default()
+        },
+    );
+    backend.enqueue_simple(
+        "再乓。",
+        Usage {
+            input_tokens: 5,
+            output_tokens: 1,
+            ..Default::default()
+        },
+    );
 
     let sink = Arc::new(MemorySink::new());
 
@@ -51,9 +65,10 @@ async fn stream_without_done_still_records_a_turn() {
 
     let backend = Arc::new(FakeBackend::new());
     // Script: yield a text delta but NO Done event. The stream ends cleanly afterward.
-    let scripted: Vec<(ResponseChunk, Duration)> = vec![
-        (ResponseChunk::TextDelta("乓".into()), Duration::from_millis(0)),
-    ];
+    let scripted: Vec<(ResponseChunk, Duration)> = vec![(
+        ResponseChunk::TextDelta("乓".into()),
+        Duration::from_millis(0),
+    )];
     backend.enqueue_turn(scripted);
 
     let sink = Arc::new(MemorySink::new());

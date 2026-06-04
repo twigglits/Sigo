@@ -11,7 +11,10 @@ pub mod fakes;
 #[derive(Debug, Clone)]
 pub enum ResponseChunk {
     TextDelta(String),
-    Done { usage: Usage, stop_reason: Option<String> },
+    Done {
+        usage: Usage,
+        stop_reason: Option<String>,
+    },
 }
 
 #[async_trait]

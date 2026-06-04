@@ -3,8 +3,8 @@ use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use crate::error::{Result, SigoError};
 use super::{BenchmarkSink, TurnRecord};
+use crate::error::{Result, SigoError};
 
 pub struct JsonlSink {
     path: PathBuf,
@@ -31,7 +31,10 @@ impl JsonlSink {
 
 impl BenchmarkSink for JsonlSink {
     fn record(&self, turn: &TurnRecord) -> Result<()> {
-        let mut w = self.writer.lock().map_err(|_| SigoError::Sink("lock poisoned".into()))?;
+        let mut w = self
+            .writer
+            .lock()
+            .map_err(|_| SigoError::Sink("lock poisoned".into()))?;
         serde_json::to_writer(&mut *w, turn)?;
         w.write_all(b"\n")?;
         w.flush()?;
@@ -42,9 +45,9 @@ impl BenchmarkSink for JsonlSink {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::conversation::BackendKind;
     use chrono::Utc;
     use uuid::Uuid;
-    use crate::conversation::BackendKind;
 
     fn dummy_record() -> TurnRecord {
         TurnRecord {

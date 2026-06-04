@@ -2,7 +2,11 @@ use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
 #[derive(Debug, Parser)]
-#[command(name = "sigo", version, about = "Sino-Anglo translator + Claude benchmark CLI")]
+#[command(
+    name = "sigo",
+    version,
+    about = "Sino-Anglo translator + Claude benchmark CLI"
+)]
 pub struct Cli {
     #[arg(long)]
     pub config: Option<PathBuf>,

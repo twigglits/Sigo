@@ -5,9 +5,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use sigo_core::{
-    ApiBackend, BackendKind, BenchmarkSink, ClaudeBackend, ClaudeCodeBackend, TokenizerProxy,
-    ControlMode, JsonlSink, OllamaTranslator, Orchestrator, OrchestratorConfig, SigoConfig,
-    StdoutSink, Tokenizer, Translator,
+    ApiBackend, BackendKind, BenchmarkSink, ClaudeBackend, ClaudeCodeBackend, ControlMode,
+    JsonlSink, OllamaTranslator, Orchestrator, OrchestratorConfig, SigoConfig, StdoutSink,
+    Tokenizer, TokenizerProxy, Translator,
 };
 
 use crate::display::Display;
@@ -29,9 +29,8 @@ pub fn build_orchestrator(config: &SigoConfig) -> Result<Orchestrator> {
     let backend_kind = parse_backend(&config.claude.backend)?;
     let backend: Arc<dyn ClaudeBackend> = build_backend(backend_kind, config)?;
 
-    let tokenizer: Arc<dyn Tokenizer> = Arc::new(
-        TokenizerProxy::new().context("failed to initialize o200k_base proxy tokenizer")?,
-    );
+    let tokenizer: Arc<dyn Tokenizer> =
+        Arc::new(TokenizerProxy::new().context("failed to initialize o200k_base proxy tokenizer")?);
 
     let sink: Arc<dyn BenchmarkSink> = Arc::new(
         JsonlSink::open(config.resolved_log_path()).context("failed to open benchmark log")?,
@@ -110,7 +109,10 @@ async fn handle_slash(rest: &str, state: &mut ReplState, config: &SigoConfig) ->
         }
         "reset" => {
             state.orchestrator.reset();
-            println!("conversation reset (new session id = {})", state.orchestrator.session_id);
+            println!(
+                "conversation reset (new session id = {})",
+                state.orchestrator.session_id
+            );
         }
         "save" => {
             if let Some(arg) = args.first() {
@@ -234,7 +236,11 @@ pub fn build_backend(kind: BackendKind, cfg: &SigoConfig) -> Result<Arc<dyn Clau
         BackendKind::Api => {
             let key = std::env::var("ANTHROPIC_API_KEY")
                 .context("ANTHROPIC_API_KEY env var not set (required for `api` backend)")?;
-            Ok(Arc::new(ApiBackend::new(key, &cfg.claude.model, cfg.claude.max_tokens)))
+            Ok(Arc::new(ApiBackend::new(
+                key,
+                &cfg.claude.model,
+                cfg.claude.max_tokens,
+            )))
         }
         BackendKind::ClaudeCode => Ok(Arc::new(
             ClaudeCodeBackend::new(&cfg.claude.claude_code.binary)
@@ -247,9 +253,16 @@ pub fn build_backend(kind: BackendKind, cfg: &SigoConfig) -> Result<Arc<dyn Clau
 fn save_session(orch: &Orchestrator, path: &std::path::Path) -> Result<()> {
     use std::io::Write;
     let mut file = std::fs::File::create(path)?;
-    writeln!(file, "# Sigo session {} — {} turns", orch.session_id, orch.turn_index)?;
+    writeln!(
+        file,
+        "# Sigo session {} — {} turns",
+        orch.session_id, orch.turn_index
+    )?;
     writeln!(file)?;
-    for (i, (zh, en)) in orch.chinese_convo.messages.iter()
+    for (i, (zh, en)) in orch
+        .chinese_convo
+        .messages
+        .iter()
         .zip(orch.english_convo.messages.iter())
         .enumerate()
     {

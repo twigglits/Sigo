@@ -23,7 +23,9 @@ pub struct FakeBackend {
 
 impl FakeBackend {
     pub fn new() -> Self {
-        Self { scripts: Arc::new(Mutex::new(vec![])) }
+        Self {
+            scripts: Arc::new(Mutex::new(vec![])),
+        }
     }
 
     /// Queue an arbitrary scripted turn (chunks + optional injected errors).
@@ -33,23 +35,41 @@ impl FakeBackend {
 
     /// Backwards-compatible: queue a turn of just chunks (no errors).
     pub fn enqueue_turn(&self, chunks: Vec<(ResponseChunk, Duration)>) {
-        let items = chunks.into_iter().map(|(c, d)| (ScriptedItem::Chunk(c), d)).collect();
+        let items = chunks
+            .into_iter()
+            .map(|(c, d)| (ScriptedItem::Chunk(c), d))
+            .collect();
         self.enqueue_scripted(items);
     }
 
     /// Convenience: enqueue a single-text-then-done response.
     pub fn enqueue_simple(&self, text: &str, usage: Usage) {
         self.enqueue_turn(vec![
-            (ResponseChunk::TextDelta(text.to_string()), Duration::from_millis(0)),
-            (ResponseChunk::Done { usage, stop_reason: Some("end_turn".to_string()) }, Duration::from_millis(0)),
+            (
+                ResponseChunk::TextDelta(text.to_string()),
+                Duration::from_millis(0),
+            ),
+            (
+                ResponseChunk::Done {
+                    usage,
+                    stop_reason: Some("end_turn".to_string()),
+                },
+                Duration::from_millis(0),
+            ),
         ]);
     }
 
     /// Convenience: enqueue a turn that yields one chunk then an error mid-stream.
     pub fn enqueue_error_after_chunk(&self, text: &str, error_msg: &str) {
         self.enqueue_scripted(vec![
-            (ScriptedItem::Chunk(ResponseChunk::TextDelta(text.to_string())), Duration::from_millis(0)),
-            (ScriptedItem::Error(error_msg.to_string()), Duration::from_millis(0)),
+            (
+                ScriptedItem::Chunk(ResponseChunk::TextDelta(text.to_string())),
+                Duration::from_millis(0),
+            ),
+            (
+                ScriptedItem::Error(error_msg.to_string()),
+                Duration::from_millis(0),
+            ),
         ]);
     }
 }
@@ -61,13 +81,21 @@ impl ClaudeBackend for FakeBackend {
         _convo: &Conversation,
         _prompt: &str,
     ) -> Result<BoxStream<'static, Result<ResponseChunk>>> {
-        let next = self.scripts.lock().unwrap().drain(..1).next()
-            .unwrap_or_else(|| vec![
-                (ScriptedItem::Chunk(ResponseChunk::Done {
-                    usage: Usage::default(),
-                    stop_reason: None,
-                }), Duration::from_millis(0)),
-            ]);
+        let next = self
+            .scripts
+            .lock()
+            .unwrap()
+            .drain(..1)
+            .next()
+            .unwrap_or_else(|| {
+                vec![(
+                    ScriptedItem::Chunk(ResponseChunk::Done {
+                        usage: Usage::default(),
+                        stop_reason: None,
+                    }),
+                    Duration::from_millis(0),
+                )]
+            });
         let s = stream::iter(next.into_iter().map(|(item, _d)| match item {
             ScriptedItem::Chunk(c) => Ok(c),
             ScriptedItem::Error(msg) => Err(SigoError::Backend(msg)),
@@ -77,5 +105,7 @@ impl ClaudeBackend for FakeBackend {
 }
 
 impl Default for FakeBackend {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }

@@ -1,5 +1,5 @@
-use crate::error::Result;
 use super::Tokenizer;
+use crate::error::Result;
 use tiktoken_rs::CoreBPE;
 
 /// English-optimised BPE (GPT-4o `o200k_base`) used as an OFFLINE PROXY for
@@ -12,7 +12,9 @@ impl TokenizerProxy {
     pub fn new() -> Result<Self> {
         // Reuse the library's lazily-built singleton so the ~200k-entry BPE is
         // constructed once per process, not once per instance.
-        Ok(Self { bpe: tiktoken_rs::o200k_base_singleton() })
+        Ok(Self {
+            bpe: tiktoken_rs::o200k_base_singleton(),
+        })
     }
 
     /// Human-readable label for reports.
@@ -43,7 +45,9 @@ mod tests {
         // direction between languages here — that is what the benchmark measures.
         let t = TokenizerProxy::new().unwrap();
         let short = t.count_tokens("Hi.").unwrap();
-        let long = t.count_tokens("The quick brown fox jumps over the lazy dog.").unwrap();
+        let long = t
+            .count_tokens("The quick brown fox jumps over the lazy dog.")
+            .unwrap();
         assert!(long > short, "short={short} long={long}");
     }
 

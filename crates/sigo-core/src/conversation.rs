@@ -25,19 +25,32 @@ impl Conversation {
     }
 
     pub fn with_system(system: impl Into<String>) -> Self {
-        Self { system: Some(system.into()), messages: vec![] }
+        Self {
+            system: Some(system.into()),
+            messages: vec![],
+        }
     }
 
     pub fn push_user(&mut self, content: impl Into<String>) {
-        self.messages.push(Message { role: Role::User, content: content.into() });
+        self.messages.push(Message {
+            role: Role::User,
+            content: content.into(),
+        });
     }
 
     pub fn push_assistant(&mut self, content: impl Into<String>) {
-        self.messages.push(Message { role: Role::Assistant, content: content.into() });
+        self.messages.push(Message {
+            role: Role::Assistant,
+            content: content.into(),
+        });
     }
 
     pub fn last_user(&self) -> Option<&str> {
-        self.messages.iter().rev().find(|m| m.role == Role::User).map(|m| m.content.as_str())
+        self.messages
+            .iter()
+            .rev()
+            .find(|m| m.role == Role::User)
+            .map(|m| m.content.as_str())
     }
 }
 

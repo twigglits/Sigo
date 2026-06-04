@@ -20,7 +20,11 @@ pub struct SentenceBuffer {
 
 impl SentenceBuffer {
     pub fn new() -> Self {
-        Self { state: State::Text, text_buf: String::new(), code_buf: String::new() }
+        Self {
+            state: State::Text,
+            text_buf: String::new(),
+            code_buf: String::new(),
+        }
     }
 
     /// Push streamed input and return any complete segments ready for downstream processing.
@@ -130,7 +134,10 @@ mod tests {
 
     #[test]
     fn single_chinese_sentence_emits_on_period() {
-        assert_eq!(collect_all("你好。"), vec![Segment::Text("你好。".to_string())]);
+        assert_eq!(
+            collect_all("你好。"),
+            vec![Segment::Text("你好。".to_string())]
+        );
     }
 
     #[test]
@@ -156,36 +163,48 @@ mod tests {
     #[test]
     fn english_exclamation_with_space_emits() {
         let segs = collect_all("Wow! Cool.");
-        assert_eq!(segs, vec![
-            Segment::Text("Wow! ".to_string()),
-            Segment::Text("Cool.".to_string()),
-        ]);
+        assert_eq!(
+            segs,
+            vec![
+                Segment::Text("Wow! ".to_string()),
+                Segment::Text("Cool.".to_string()),
+            ]
+        );
     }
 
     #[test]
     fn paragraph_break_emits() {
         let segs = collect_all("First paragraph\n\nSecond paragraph");
-        assert_eq!(segs, vec![
-            Segment::Text("First paragraph\n\n".to_string()),
-            Segment::Text("Second paragraph".to_string()),
-        ]);
+        assert_eq!(
+            segs,
+            vec![
+                Segment::Text("First paragraph\n\n".to_string()),
+                Segment::Text("Second paragraph".to_string()),
+            ]
+        );
     }
 
     #[test]
     fn code_fence_at_start() {
         let segs = collect_all("```\nfn main() {}\n```\n");
-        assert_eq!(segs, vec![Segment::Passthrough("```\nfn main() {}\n```\n".to_string())]);
+        assert_eq!(
+            segs,
+            vec![Segment::Passthrough("```\nfn main() {}\n```\n".to_string())]
+        );
     }
 
     #[test]
     fn text_then_code_fence_then_text() {
         let segs = collect_all("看这段代码。\n```rust\nfn main() {}\n```\n好吗？");
-        assert_eq!(segs, vec![
-            Segment::Text("看这段代码。".to_string()),
-            Segment::Text("\n".to_string()),
-            Segment::Passthrough("```rust\nfn main() {}\n```\n".to_string()),
-            Segment::Text("好吗？".to_string()),
-        ]);
+        assert_eq!(
+            segs,
+            vec![
+                Segment::Text("看这段代码。".to_string()),
+                Segment::Text("\n".to_string()),
+                Segment::Passthrough("```rust\nfn main() {}\n```\n".to_string()),
+                Segment::Text("好吗？".to_string()),
+            ]
+        );
     }
 
     #[test]
@@ -203,19 +222,32 @@ mod tests {
     #[test]
     fn unclosed_code_fence_emits_on_flush() {
         let segs = collect_all("```\nfn x() {\n  // no close");
-        assert_eq!(segs, vec![Segment::Passthrough("```\nfn x() {\n  // no close".to_string())]);
+        assert_eq!(
+            segs,
+            vec![Segment::Passthrough(
+                "```\nfn x() {\n  // no close".to_string()
+            )]
+        );
     }
 
     #[test]
     fn closing_fence_at_eof_emits_via_flush() {
         let segs = collect_all("```\nfn x() {}\n```");
-        assert_eq!(segs, vec![Segment::Passthrough("```\nfn x() {}\n```".to_string())]);
+        assert_eq!(
+            segs,
+            vec![Segment::Passthrough("```\nfn x() {}\n```".to_string())]
+        );
     }
 
     #[test]
     fn code_fence_preserves_language_info_string() {
         let segs = collect_all("```python\nprint('hi')\n```\n");
-        assert_eq!(segs, vec![Segment::Passthrough("```python\nprint('hi')\n```\n".to_string())]);
+        assert_eq!(
+            segs,
+            vec![Segment::Passthrough(
+                "```python\nprint('hi')\n```\n".to_string()
+            )]
+        );
     }
 
     #[test]

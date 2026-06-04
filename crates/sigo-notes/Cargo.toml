@@ -1,0 +1,22 @@
+[package]
+name = "sigo-notes"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "sigo-notes"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+dirs.workspace = true
+uuid.workspace = true
+ratatui = "0.28"
+crossterm = { version = "0.28", features = ["event-stream"] }
+notify-rust = "4"
+tokio = { workspace = true }
+futures.workspace = true
