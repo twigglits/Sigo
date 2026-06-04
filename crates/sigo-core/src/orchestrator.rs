@@ -1,6 +1,10 @@
 use chrono::Utc;
+use futures::stream::FuturesOrdered;
 use futures::StreamExt;
+use std::collections::VecDeque;
+use std::future::Future;
 use std::io::Write;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Instant;
 use uuid::Uuid;
@@ -171,7 +175,11 @@ impl Orchestrator {
             .stream_turn(&self.chinese_convo, &chinese_prompt)
             .await?;
 
-        // Step 4: Stream consumption with sentence buffering and per-segment translation.
+        // Step 4: Drain the Claude stream while translating completed sentences
+        // concurrently (bounded), emitting results in production order. Decoupling
+        // translation from stream reading means a long answer no longer pays N
+        // sequential translation latencies.
+        const MAX_INFLIGHT: usize = 4;
         let mut chinese_response = String::new();
         let mut english_response_emitted = String::new();
         let mut buffer = SentenceBuffer::new();
@@ -182,84 +190,99 @@ impl Orchestrator {
         let mut ttft_ms: u64 = 0;
         let claude_started = Instant::now();
         let mut got_first_delta = false;
-        let mut translation_out_ms_total: u64 = 0;
         let mut translation_out_calls: u32 = 0;
+        let mut tx_span_min: Option<Instant> = None;
+        let mut tx_span_max: Option<Instant> = None;
         let mut incomplete = false;
-        let mut stream_ended_with_done = false;
 
-        while let Some(item) = stream.next().await {
-            match item {
-                Ok(ResponseChunk::TextDelta(text)) => {
-                    if !got_first_delta {
-                        ttft_ms = claude_started.elapsed().as_millis() as u64;
-                        got_first_delta = true;
+        // Segments awaiting a translation slot (FIFO, so output stays in order) and the
+        // in-flight translations (FuturesOrdered yields completed work front-first).
+        let mut queue: VecDeque<Segment> = VecDeque::new();
+        let mut pending: FuturesOrdered<Pin<Box<dyn Future<Output = Emit> + Send>>> =
+            FuturesOrdered::new();
+        let mut stream_finished = false;
+
+        loop {
+            // Promote queued segments into in-flight translations up to the cap.
+            while pending.len() < MAX_INFLIGHT {
+                match queue.pop_front() {
+                    Some(seg) => pending.push_back(translate_segment(self.translator.clone(), seg)),
+                    None => break,
+                }
+            }
+
+            if pending.is_empty() && queue.is_empty() && stream_finished {
+                break;
+            }
+
+            if stream_finished {
+                // No more chunks: drain remaining in-flight translations in order.
+                if let Some(emit) = pending.next().await {
+                    apply_emit(
+                        emit,
+                        out,
+                        &mut english_response_emitted,
+                        &mut translation_out_calls,
+                        &mut tx_span_min,
+                        &mut tx_span_max,
+                        &mut errors,
+                    );
+                }
+                continue;
+            }
+
+            // Read the next chunk while completed translations drain concurrently.
+            tokio::select! {
+                biased;
+                Some(emit) = pending.next(), if !pending.is_empty() => {
+                    apply_emit(
+                        emit,
+                        out,
+                        &mut english_response_emitted,
+                        &mut translation_out_calls,
+                        &mut tx_span_min,
+                        &mut tx_span_max,
+                        &mut errors,
+                    );
+                }
+                item = stream.next() => {
+                    match item {
+                        None => {
+                            queue.extend(buffer.flush());
+                            stream_finished = true;
+                        }
+                        Some(Ok(ResponseChunk::TextDelta(text))) => {
+                            if !got_first_delta {
+                                ttft_ms = claude_started.elapsed().as_millis() as u64;
+                                got_first_delta = true;
+                            }
+                            chinese_response.push_str(&text);
+                            queue.extend(buffer.push(&text));
+                        }
+                        Some(Ok(ResponseChunk::Done { usage, stop_reason: _ })) => {
+                            reported_input = Some(usage.input_tokens);
+                            reported_output = Some(usage.output_tokens);
+                            cache_read = usage.cache_read;
+                            cache_write = usage.cache_write;
+                            queue.extend(buffer.flush());
+                            stream_finished = true;
+                        }
+                        Some(Err(e)) => {
+                            queue.extend(buffer.flush());
+                            incomplete = true;
+                            errors.push(format!("claude stream: {e}"));
+                            stream_finished = true;
+                        }
                     }
-                    chinese_response.push_str(&text);
-                    let segments = buffer.push(&text);
-                    emit_segments(
-                        self.translator.as_ref(),
-                        segments,
-                        &mut english_response_emitted,
-                        &mut translation_out_ms_total,
-                        &mut translation_out_calls,
-                        &mut errors,
-                        out,
-                    )
-                    .await;
-                }
-                Ok(ResponseChunk::Done {
-                    usage,
-                    stop_reason: _,
-                }) => {
-                    reported_input = Some(usage.input_tokens);
-                    reported_output = Some(usage.output_tokens);
-                    cache_read = usage.cache_read;
-                    cache_write = usage.cache_write;
-                    let tail = buffer.flush();
-                    emit_segments(
-                        self.translator.as_ref(),
-                        tail,
-                        &mut english_response_emitted,
-                        &mut translation_out_ms_total,
-                        &mut translation_out_calls,
-                        &mut errors,
-                        out,
-                    )
-                    .await;
-                    stream_ended_with_done = true;
-                    break;
-                }
-                Err(e) => {
-                    let tail = buffer.flush();
-                    emit_segments(
-                        self.translator.as_ref(),
-                        tail,
-                        &mut english_response_emitted,
-                        &mut translation_out_ms_total,
-                        &mut translation_out_calls,
-                        &mut errors,
-                        out,
-                    )
-                    .await;
-                    incomplete = true;
-                    errors.push(format!("claude stream: {e}"));
-                    break;
                 }
             }
         }
-        if !stream_ended_with_done && !incomplete {
-            let tail = buffer.flush();
-            emit_segments(
-                self.translator.as_ref(),
-                tail,
-                &mut english_response_emitted,
-                &mut translation_out_ms_total,
-                &mut translation_out_calls,
-                &mut errors,
-                out,
-            )
-            .await;
-        }
+        // Wall-clock span during which translation work happened (accounts for overlap),
+        // not the sum of per-call durations (which would over-count under concurrency).
+        let translation_out_ms_total = match (tx_span_min, tx_span_max) {
+            (Some(s), Some(e)) => e.saturating_duration_since(s).as_millis() as u64,
+            _ => 0,
+        };
         let claude_total_ms = claude_started.elapsed().as_millis() as u64;
 
         // Step 5: Response-side token count.
@@ -349,38 +372,71 @@ impl Orchestrator {
     }
 }
 
-async fn emit_segments(
-    translator: &dyn Translator,
-    segments: Vec<Segment>,
-    english_acc: &mut String,
-    translation_out_ms_total: &mut u64,
-    translation_out_calls: &mut u32,
-    errors: &mut Vec<String>,
+/// One ready-to-write output fragment for a streamed segment. Passthrough fragments
+/// carry no timing; translated fragments carry the (start, end) of their translation so
+/// the orchestrator can report the wall-clock span of overlapping translation work.
+struct Emit {
+    text: String,
+    timing: Option<(Instant, Instant)>,
+    error: Option<String>,
+}
+
+/// Build the future that produces a segment's output. Passthrough is ready immediately;
+/// text is translated ZH->EN, falling back to the raw ZH on error. The translator handle
+/// is cloned so the future is `'static` and can run concurrently with stream draining.
+fn translate_segment(
+    translator: Arc<dyn Translator>,
+    seg: Segment,
+) -> Pin<Box<dyn Future<Output = Emit> + Send>> {
+    match seg {
+        Segment::Passthrough(raw) => Box::pin(async move {
+            Emit {
+                text: raw,
+                timing: None,
+                error: None,
+            }
+        }),
+        Segment::Text(zh) => Box::pin(async move {
+            let start = Instant::now();
+            let result = translator.translate(&zh, Direction::ZhToEn).await;
+            let end = Instant::now();
+            match result {
+                Ok(en) => Emit {
+                    text: en,
+                    timing: Some((start, end)),
+                    error: None,
+                },
+                Err(e) => Emit {
+                    text: zh,
+                    timing: Some((start, end)),
+                    error: Some(format!("zh->en segment translation: {e}")),
+                },
+            }
+        }),
+    }
+}
+
+/// Write one emitted fragment in order, updating the translation call count, the
+/// wall-clock translation span, and any error.
+#[allow(clippy::too_many_arguments)]
+fn apply_emit(
+    emit: Emit,
     out: &mut dyn OutputSink,
+    english_acc: &mut String,
+    calls: &mut u32,
+    span_min: &mut Option<Instant>,
+    span_max: &mut Option<Instant>,
+    errors: &mut Vec<String>,
 ) {
-    for seg in segments {
-        match seg {
-            Segment::Passthrough(raw) => {
-                out.write(&raw);
-                english_acc.push_str(&raw);
-            }
-            Segment::Text(zh) => {
-                let t0 = Instant::now();
-                match translator.translate(&zh, Direction::ZhToEn).await {
-                    Ok(en) => {
-                        out.write(&en);
-                        english_acc.push_str(&en);
-                    }
-                    Err(e) => {
-                        errors.push(format!("zh->en segment translation: {e}"));
-                        out.write(&zh);
-                        english_acc.push_str(&zh);
-                    }
-                }
-                *translation_out_ms_total += t0.elapsed().as_millis() as u64;
-                *translation_out_calls += 1;
-            }
-        }
+    out.write(&emit.text);
+    english_acc.push_str(&emit.text);
+    if let Some((s, e)) = emit.timing {
+        *calls += 1;
+        *span_min = Some(span_min.map_or(s, |m| m.min(s)));
+        *span_max = Some(span_max.map_or(e, |m| m.max(e)));
+    }
+    if let Some(err) = emit.error {
+        errors.push(err);
     }
     out.flush();
 }
@@ -569,6 +625,65 @@ mod tests {
         assert!(
             !record.turn_errors.is_empty(),
             "turn_errors should capture the failure"
+        );
+    }
+
+    #[tokio::test]
+    async fn translations_overlap_and_preserve_order() {
+        use std::time::Duration;
+
+        // A translator that sleeps a fixed delay per call so we can observe overlap.
+        struct Sleepy {
+            d: Duration,
+        }
+        #[async_trait::async_trait]
+        impl Translator for Sleepy {
+            async fn translate(&self, text: &str, dir: Direction) -> Result<String> {
+                tokio::time::sleep(self.d).await;
+                Ok(match dir {
+                    Direction::EnToZh => text.to_string(),
+                    Direction::ZhToEn => format!("[{}]", text.trim_end_matches('。').trim()),
+                })
+            }
+        }
+
+        let translator: Arc<dyn Translator> = Arc::new(Sleepy {
+            d: Duration::from_millis(100),
+        });
+        let backend = Arc::new(FakeBackend::new());
+        // One delta with four complete Chinese sentences → four Text segments.
+        backend.enqueue_simple("句一。句二。句三。句四。", Usage::default());
+        let sink = Arc::new(MemorySink::new());
+        let cfg = OrchestratorConfig {
+            backend_kind: BackendKind::Api,
+            claude_model: "m".into(),
+            translator_model: "t".into(),
+            control_mode: ControlMode::PromptOnly,
+        };
+        let tokenizer: Arc<dyn Tokenizer> = Arc::new(TokenizerProxy::new().unwrap());
+        let mut orch = Orchestrator::new(cfg, translator, backend, tokenizer, sink);
+
+        let mut out = CollectSink::default();
+        let start = std::time::Instant::now();
+        let record = orch.run_turn("hello", &mut out).await.unwrap();
+        let elapsed = start.elapsed();
+
+        // Output order matches production order.
+        let o = &record.english_response;
+        let (p1, p2, p3, p4) = (
+            o.find("句一").unwrap(),
+            o.find("句二").unwrap(),
+            o.find("句三").unwrap(),
+            o.find("句四").unwrap(),
+        );
+        assert!(p1 < p2 && p2 < p3 && p3 < p4, "segments out of order: {o}");
+        assert_eq!(record.translation_out_calls, 4);
+
+        // Sequential would be ~500ms (1 prompt + 4 sentence translations at 100ms each);
+        // overlapping the sentence translations brings it well under that.
+        assert!(
+            elapsed < Duration::from_millis(375),
+            "translations did not overlap: {elapsed:?}"
         );
     }
 
