@@ -28,6 +28,17 @@ jobs:
       - name: ShellCheck install.sh
         run: shellcheck install.sh
 
+  # Deterministic supply-chain gate: banned/duplicate crates, license policy, and
+  # source registries. Security advisories are intentionally left to the separate,
+  # non-blocking audit.yml so a freshly-published advisory can't fail required checks.
+  cargo-deny:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check bans licenses sources
+
   # Guard the declared MSRV (Cargo.toml `rust-version`). The locked dependency
   # tree currently floors at 1.88; this catches an accidental bump or a new
   # dependency that needs newer Rust.
