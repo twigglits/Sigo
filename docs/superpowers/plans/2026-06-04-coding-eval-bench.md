@@ -45,7 +45,7 @@
 - Modify: `crates/sigo-core/src/tokenizer/mod.rs`, `crates/sigo-core/src/lib.rs`
 - Modify (callers): `crates/sigo-core/src/orchestrator.rs`, `crates/sigo-cli/src/commands/bench_run.rs`, `crates/sigo-cli/src/commands/doctor.rs`
 
-- [ ] **Step 1: Edit `Cargo.toml`** — in `crates/sigo-core/Cargo.toml`, remove the `claude-tokenizer = "0.3.0"` line, add `tiktoken-rs = "0.6"` under `[dependencies]`, and move `tempfile = "3"` from `[dev-dependencies]` into `[dependencies]` (it is needed at runtime by `code_exec`). Leave it listed only once.
+- [ ] **Step 1: Edit `Cargo.toml`** — in `crates/sigo-core/Cargo.toml`, remove the `claude-tokenizer = "0.3.0"` line, add `tiktoken-rs = "0.12"` under `[dependencies]` (latest on crates.io; embeds `o200k_base` offline), and move `tempfile = "3"` from `[dev-dependencies]` into `[dependencies]` (it is needed at runtime by `code_exec`). Leave it listed only once. Note: `CoreBPE::encode_ordinary(text).len()` is used for counting — robust whether the version returns `Vec<u32>` or `Vec<usize>`.
 
 - [ ] **Step 2: Write the failing test** — create `crates/sigo-core/src/tokenizer/proxy.rs`:
 
