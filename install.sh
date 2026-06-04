@@ -37,21 +37,24 @@ fi
 info "installing ${BIN} ${tag} for ${target}"
 
 asset="sigo-${target}.tar.gz"
+# taiki-e/upload-rust-binary-action names the checksum after the archive's base
+# name (sigo-<target>.sha256), not <archive>.sha256. Its line references the .tar.gz.
+checksum="sigo-${target}.sha256"
 base="https://github.com/${REPO}/releases/download/${tag}"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
 info "downloading ${asset}"
 curl -fsSL "${base}/${asset}" -o "${tmp}/${asset}" || err "download failed: ${base}/${asset}"
-curl -fsSL "${base}/${asset}.sha256" -o "${tmp}/${asset}.sha256" || err "checksum download failed"
+curl -fsSL "${base}/${checksum}" -o "${tmp}/${checksum}" || err "checksum download failed: ${base}/${checksum}"
 
 info "verifying checksum"
 (
   cd "$tmp"
   if command -v sha256sum >/dev/null 2>&1; then
-    sha256sum -c "${asset}.sha256"
+    sha256sum -c "${checksum}"
   elif command -v shasum >/dev/null 2>&1; then
-    shasum -a 256 -c "${asset}.sha256"
+    shasum -a 256 -c "${checksum}"
   else
     err "no sha256 tool (sha256sum / shasum) found"
   fi
