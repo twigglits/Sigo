@@ -13,6 +13,8 @@ pub struct SigoConfig {
     pub benchmark: BenchmarkConfig,
     #[serde(default)]
     pub repl: ReplConfig,
+    #[serde(default)]
+    pub pricing: PricingConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -63,6 +65,18 @@ pub struct ReplConfig {
     pub history_file: Option<PathBuf>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PricingConfig {
+    #[serde(default = "default_input_per_mtok")]
+    pub input_per_mtok: f64,
+    #[serde(default = "default_output_per_mtok")]
+    pub output_per_mtok: f64,
+    #[serde(default = "default_cache_read_per_mtok")]
+    pub cache_read_per_mtok: f64,
+    #[serde(default = "default_cache_write_per_mtok")]
+    pub cache_write_per_mtok: f64,
+}
+
 impl Default for TranslatorConfig {
     fn default() -> Self {
         Self {
@@ -103,6 +117,17 @@ impl Default for ReplConfig {
     }
 }
 
+impl Default for PricingConfig {
+    fn default() -> Self {
+        Self {
+            input_per_mtok: default_input_per_mtok(),
+            output_per_mtok: default_output_per_mtok(),
+            cache_read_per_mtok: default_cache_read_per_mtok(),
+            cache_write_per_mtok: default_cache_write_per_mtok(),
+        }
+    }
+}
+
 impl Default for SigoConfig {
     fn default() -> Self {
         Self {
@@ -110,6 +135,7 @@ impl Default for SigoConfig {
             claude: ClaudeConfig::default(),
             benchmark: BenchmarkConfig::default(),
             repl: ReplConfig::default(),
+            pricing: PricingConfig::default(),
         }
     }
 }
@@ -123,6 +149,10 @@ fn default_claude_model() -> String { "claude-sonnet-4-6".into() }
 fn default_claude_max_tokens() -> u32 { 4096 }
 fn default_claude_code_binary() -> String { "claude".into() }
 fn default_control_mode() -> String { "prompt-only".into() }
+fn default_input_per_mtok() -> f64 { 3.0 }
+fn default_output_per_mtok() -> f64 { 15.0 }
+fn default_cache_read_per_mtok() -> f64 { 0.30 }
+fn default_cache_write_per_mtok() -> f64 { 3.75 }
 
 impl SigoConfig {
     /// Load config with precedence: cwd `./sigo.toml` overrides `$XDG_CONFIG_HOME/sigo/config.toml`,
@@ -229,6 +259,21 @@ mod tests {
         let c = SigoConfig::default();
         let path = c.resolved_log_path();
         assert!(path.ends_with("sigo/turns.jsonl"));
+    }
+
+    #[test]
+    fn pricing_defaults_and_override() {
+        let c = SigoConfig::default();
+        assert!((c.pricing.input_per_mtok - 3.0).abs() < 1e-9);
+        assert!((c.pricing.output_per_mtok - 15.0).abs() < 1e-9);
+        let c2: SigoConfig = toml::from_str(r#"
+            [pricing]
+            input_per_mtok = 15.0
+            output_per_mtok = 75.0
+        "#).unwrap();
+        assert!((c2.pricing.input_per_mtok - 15.0).abs() < 1e-9);
+        // unset cache rates keep their defaults
+        assert!((c2.pricing.cache_read_per_mtok - 0.30).abs() < 1e-9);
     }
 
     #[test]
