@@ -22,6 +22,9 @@ pub struct RunOptions {
     pub out_dir: Option<PathBuf>,
     pub eval: Option<String>,
     pub samples: usize,
+    /// Emit the machine-readable run summary as a single JSON line on stdout. Human
+    /// progress/status always goes to stderr, so `--json` output is clean for piping.
+    pub json: bool,
 }
 
 pub type TranslatorBuilder = Arc<dyn Fn() -> Arc<dyn Translator> + Send + Sync>;
@@ -107,7 +110,7 @@ pub async fn run_with_builders(
     let mut rows: Vec<(TurnRecord, String)> = Vec::with_capacity(total);
     let mut n_failed = 0usize;
 
-    println!(
+    eprintln!(
         "sigo bench run · run_id={} · backend={} · {} prompts",
         run_id, cfg.claude.backend, total
     );
@@ -200,13 +203,16 @@ pub async fn run_with_builders(
     let dstr = dpct
         .map(|v| format!("{:+.1}%", v))
         .unwrap_or_else(|| "n/a".into());
-    println!(
+    eprintln!(
         "bench run complete: {}/{} succeeded · ZH input {} vs EN · report: {}",
         summary.n_succeeded,
         total,
         dstr,
         md_path.display()
     );
+    if opts.json {
+        println!("{}", serde_json::to_string(&summary)?);
+    }
     Ok(())
 }
 
@@ -265,7 +271,7 @@ fn print_progress(
         "n/a".into()
     };
     let inc_marker = if r.incomplete { " · incomplete" } else { "" };
-    println!(
+    eprintln!(
         "[{idx}/{total}] {cat} · zh-in={zh_in} en-in={en_in} ({dpct}) · {:.1}s{inc}",
         elapsed.as_secs_f64(),
         cat = entry.category,
@@ -362,7 +368,7 @@ async fn run_coding_eval(
     let exec_timeout = Duration::from_secs(10);
 
     let total = tasks.len();
-    println!(
+    eprintln!(
         "sigo bench run --eval coding · run_id={run_id} · backend={} · {total} tasks",
         cfg.claude.backend
     );
@@ -443,7 +449,7 @@ async fn run_coding_eval(
         )
         .await;
 
-        println!(
+        eprintln!(
             "[{}/{}] {} · en={} zh={} · zh-in={} en-in={}",
             i + 1,
             total,
@@ -481,12 +487,15 @@ async fn run_coding_eval(
     std::fs::write(&md_path, md).with_context(|| format!("write {}", md_path.display()))?;
     std::fs::write(out_dir.join("eval_report.csv"), csv).context("write eval_report.csv")?;
 
-    println!(
+    eprintln!(
         "coding eval complete: {} scored, {} failed/skipped of {} · EN pass {}/{} · ZH pass {}/{} · report: {}",
         evals.len(), n_failed, total,
         summary.en_pass.passes, summary.en_pass.n,
         summary.zh_pass.passes, summary.zh_pass.n, md_path.display()
     );
+    if opts.json {
+        println!("{}", serde_json::to_string(&summary)?);
+    }
     Ok(())
 }
 

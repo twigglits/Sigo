@@ -165,5 +165,8 @@ pub enum BenchCommand {
         /// Generations per task per arm (pass@k). Default 1.
         #[arg(long, default_value_t = 1)]
         samples: usize,
+        /// Emit the run summary as JSON on stdout (progress stays on stderr).
+        #[arg(long)]
+        json: bool,
     },
 }

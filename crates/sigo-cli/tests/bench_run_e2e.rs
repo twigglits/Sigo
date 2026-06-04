@@ -79,6 +79,7 @@ async fn happy_path_three_prompts_two_categories() {
         out_dir: Some(out_dir.clone()),
         eval: None,
         samples: 1,
+        json: false,
     };
     run_with_builders(&cfg, opts, translator_builder, backend_builder)
         .await
@@ -170,6 +171,7 @@ async fn translator_failure_skips_prompt_and_logs_to_errors_jsonl() {
         out_dir: Some(out_dir.clone()),
         eval: None,
         samples: 1,
+        json: false,
     };
     run_with_builders(&cfg, opts, translator_builder, backend_builder)
         .await
@@ -265,6 +267,7 @@ async fn mid_stream_claude_error_marks_incomplete_not_failed() {
         out_dir: Some(out_dir.clone()),
         eval: None,
         samples: 1,
+        json: false,
     };
     run_with_builders(&cfg, opts, translator_builder, backend_builder)
         .await

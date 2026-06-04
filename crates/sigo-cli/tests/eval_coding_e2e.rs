@@ -195,6 +195,7 @@ async fn eval_mode_writes_report_with_fakes() {
         out_dir: Some(out_dir.clone()),
         eval: Some("coding".into()),
         samples: 1,
+        json: false,
     };
 
     run_with_builders(&cfg, opts, translator_builder, backend_builder)

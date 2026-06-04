@@ -80,6 +80,7 @@ pub async fn run(config: &SigoConfig, cmd: BenchCommand) -> Result<()> {
             out_dir,
             eval,
             samples,
+            json,
         } => {
             bench_run::run(
                 config,
@@ -90,6 +91,7 @@ pub async fn run(config: &SigoConfig, cmd: BenchCommand) -> Result<()> {
                     out_dir,
                     eval: eval.map(|e| e.as_str().to_string()),
                     samples,
+                    json,
                 },
             )
             .await?;

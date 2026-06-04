@@ -1,6 +1,8 @@
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
+use serde::Serialize;
+
 use crate::config::PricingConfig;
 use crate::eval::code_exec::Outcome;
 use crate::eval::metrics::{bootstrap_ci_mean, pct_delta, wilson_ci, win_rate, ArmCost, Pcg32};
@@ -24,7 +26,7 @@ pub struct TaskEval {
 }
 
 /// A layer's paired comparison (mean delta % with bootstrap CI + win-rate).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct LayerStat {
     pub mean_en: f64,
     pub mean_zh: f64,
@@ -34,7 +36,7 @@ pub struct LayerStat {
     pub win_rate: f64,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct PassStat {
     pub passes: usize,
     pub n: usize,
@@ -43,7 +45,7 @@ pub struct PassStat {
     pub ci_hi: f64,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct EvalSummary {
     pub n: usize,
     pub proxy_input: LayerStat,
@@ -449,6 +451,15 @@ mod tests {
         assert_eq!(verdict(-5.0, -1.0), "ZH cheaper");
         assert_eq!(verdict(1.0, 5.0), "EN cheaper");
         assert_eq!(verdict(-2.0, 3.0), "wash (CI crosses 0)");
+    }
+
+    #[test]
+    fn eval_summary_serializes_to_json() {
+        let s = summarize_eval(&sample(), &PricingConfig::default(), 7);
+        let json = serde_json::to_string(&s).unwrap();
+        assert!(json.contains("\"reported_input\""), "{json}");
+        assert!(json.contains("\"en_pass\""), "{json}");
+        assert!(json.contains("\"cost_per_pass_ratio\""), "{json}");
     }
 
     #[test]
