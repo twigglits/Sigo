@@ -1,6 +1,138 @@
+use std::path::Path;
 use std::process::Stdio;
+use std::sync::OnceLock;
 use std::time::Duration;
 use tokio::process::Command;
+
+/// In-process Python hardening prepended to every runner. Best-effort: it nulls the
+/// common shell/file/exec entry points and caps address space so a buggy or hostile
+/// solution can't trivially trash the host or OOM a long run. The real network +
+/// filesystem isolation comes from bubblewrap when available; this is defense in depth.
+const SANDBOX_PREAMBLE: &str = r#"# --- sigo sandbox preamble ---
+import sys as _sys
+try:
+    import resource as _resource
+    _MAX = 2147483648  # 2 GiB address-space cap
+    for _lim in (_resource.RLIMIT_AS, _resource.RLIMIT_DATA):
+        try:
+            _resource.setrlimit(_lim, (_MAX, _MAX))
+        except Exception:
+            pass
+except Exception:
+    pass
+try:
+    import faulthandler as _fh
+    _fh.disable()
+except Exception:
+    pass
+try:
+    import os as _os
+    _os.environ['OMP_NUM_THREADS'] = '1'
+    for _n in ('system','popen','kill','killpg','fork','forkpty','remove','removedirs','rmdir','unlink','rename','renames','replace','truncate','chmod','chown','chroot','chdir','setuid','putenv','execv','execve','execvp','execvpe'):
+        if hasattr(_os, _n):
+            try:
+                setattr(_os, _n, None)
+            except Exception:
+                pass
+except Exception:
+    pass
+try:
+    import shutil as _shutil
+    _shutil.rmtree = None
+    _shutil.move = None
+except Exception:
+    pass
+try:
+    import subprocess as _subprocess
+    _subprocess.Popen = None
+except Exception:
+    pass
+import builtins as _builtins
+_builtins.exit = None
+_builtins.quit = None
+for _m in ('tkinter', 'psutil', 'resource'):
+    _sys.modules[_m] = None
+# --- end sigo sandbox preamble ---
+"#;
+
+/// Secret-bearing env vars scrubbed from the child before running untrusted code.
+const SCRUBBED_ENV: &[&str] = &[
+    "ANTHROPIC_API_KEY",
+    "OPENAI_API_KEY",
+    "AWS_SECRET_ACCESS_KEY",
+    "AWS_SESSION_TOKEN",
+    "GITHUB_TOKEN",
+];
+
+/// Base bubblewrap arguments: fresh namespaces (incl. network), system read-only,
+/// a private /tmp, die-with-parent. Per-run bind/chdir are appended by the caller.
+const BWRAP_BASE: &[&str] = &[
+    "--unshare-all",
+    "--die-with-parent",
+    "--ro-bind-try",
+    "/usr",
+    "/usr",
+    "--ro-bind-try",
+    "/bin",
+    "/bin",
+    "--ro-bind-try",
+    "/sbin",
+    "/sbin",
+    "--ro-bind-try",
+    "/lib",
+    "/lib",
+    "--ro-bind-try",
+    "/lib64",
+    "/lib64",
+    "--ro-bind-try",
+    "/etc/alternatives",
+    "/etc/alternatives",
+    "--proc",
+    "/proc",
+    "--dev",
+    "/dev",
+    "--tmpfs",
+    "/tmp",
+];
+
+/// Whether bubblewrap is present AND actually works here. Probed once: nested
+/// namespaces (some CI/containers) can have bwrap installed yet fail to set up the
+/// sandbox, in which case we must NOT use it or every task would error spuriously.
+fn bwrap_works() -> bool {
+    static OK: OnceLock<bool> = OnceLock::new();
+    *OK.get_or_init(|| {
+        std::process::Command::new("bwrap")
+            .args(BWRAP_BASE)
+            .args(["python3", "-c", "pass"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    })
+}
+
+/// Command that runs `runner` (absolute, inside `workdir`): bubblewrap-wrapped when it
+/// works, else bare `python3` (still hardened by the in-process preamble).
+fn runner_command(workdir: &Path, runner: &Path) -> Command {
+    if bwrap_works() {
+        let mut c = Command::new("bwrap");
+        c.args(BWRAP_BASE)
+            .arg("--bind")
+            .arg(workdir)
+            .arg(workdir)
+            .arg("--chdir")
+            .arg(workdir)
+            .arg("python3")
+            .arg(runner);
+        c
+    } else {
+        let mut c = Command::new("python3");
+        c.arg(runner);
+        c
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Outcome {
@@ -68,9 +200,11 @@ fn fenced_blocks(text: &str) -> Vec<String> {
     out
 }
 
-/// Extract code, run `<code>\n<test>\ncheck(entry_point)` under `python3` with a
-/// hard timeout, and classify the result. Runs untrusted model code: callers
-/// should run inside a throwaway VM/container for untrusted corpora.
+/// Extract code, run `<preamble>\n<code>\n<test>\ncheck(entry_point)` with a hard
+/// timeout, and classify the result. The model code is untrusted: it runs under
+/// bubblewrap when available (no network, read-only system) and always behind the
+/// in-process [`SANDBOX_PREAMBLE`]. The guard is best-effort, not a security boundary —
+/// for a genuinely untrusted corpus, install `bwrap` or use a throwaway VM/container.
 pub async fn evaluate_answer(
     answer: &str,
     test: &str,
@@ -84,20 +218,23 @@ pub async fn evaluate_answer(
         Ok(d) => d,
         Err(_) => return Outcome::RuntimeError,
     };
-    let runner = format!("{code}\n{test}\ncheck({entry_point})\nprint('SIGO_OK')\n");
+    let runner =
+        format!("{SANDBOX_PREAMBLE}\n{code}\n{test}\ncheck({entry_point})\nprint('SIGO_OK')\n");
     let path = dir.path().join("runner.py");
     if std::fs::write(&path, runner).is_err() {
         return Outcome::RuntimeError;
     }
 
-    let child = Command::new("python3")
-        .arg(&path)
-        .current_dir(dir.path())
+    let mut cmd = runner_command(dir.path(), &path);
+    cmd.current_dir(dir.path())
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .kill_on_drop(true)
-        .spawn();
+        .kill_on_drop(true);
+    for var in SCRUBBED_ENV {
+        cmd.env_remove(var);
+    }
+    let child = cmd.spawn();
     let child = match child {
         Ok(c) => c,
         Err(_) => return Outcome::RuntimeError,
@@ -248,6 +385,27 @@ mod tests {
         assert_eq!(
             evaluate_answer(&fence(code), test, "add", std::time::Duration::from_secs(2)).await,
             Outcome::Timeout
+        );
+    }
+
+    #[tokio::test]
+    async fn sandbox_neutralizes_dangerous_calls() {
+        if !python3_available() {
+            eprintln!("skip: no python3");
+            return;
+        }
+        // PASSES only if the reliability guard nulled these before the model code ran.
+        let code = "import os, subprocess\ndef add(a, b):\n    assert os.system is None\n    assert os.remove is None\n    assert subprocess.Popen is None\n    return a + b\n";
+        let test = "def check(candidate):\n    assert candidate(2, 3) == 5\n";
+        assert_eq!(
+            evaluate_answer(
+                &fence(code),
+                test,
+                "add",
+                std::time::Duration::from_secs(10)
+            )
+            .await,
+            Outcome::Pass
         );
     }
 

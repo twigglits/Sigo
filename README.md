@@ -253,8 +253,15 @@ ZH win-rate:
 
 - `--samples` currently supports only `1` (pass@1). Higher values (pass@k) are
   reserved but not yet implemented.
-- The eval executes model-generated Python locally via `python3`. Run an untrusted
-  corpus inside a VM or container. `python3` must be on PATH (verified by `sigo doctor`).
+- The eval executes model-generated Python locally. It is sandboxed in depth: each
+  solution runs under [bubblewrap](https://github.com/containers/bubblewrap) when
+  available (fresh namespaces with **no network**, a read-only system, and a private
+  `/tmp`), and always behind an in-process guard that neutralises the common
+  shell/file/exec entry points and caps address space. bubblewrap is used only if a
+  start-up probe confirms it works in your environment; otherwise the in-process guard
+  still applies. The guard is best-effort, not a security boundary — for a genuinely
+  untrusted corpus, install `bwrap` (or run inside a throwaway VM/container).
+  `python3` must be on PATH (verified by `sigo doctor`).
 - N is typically small; bootstrap CIs are indicative, not tight.
 
 ## Development
