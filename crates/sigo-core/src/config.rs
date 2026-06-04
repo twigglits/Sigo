@@ -178,38 +178,32 @@ impl SigoConfig {
     /// Load config with precedence: cwd `./sigo.toml` overrides `$XDG_CONFIG_HOME/sigo/config.toml`,
     /// both override built-in defaults. Missing files are not an error.
     pub fn load() -> Result<Self> {
-        // Start with built-in defaults serialized to TOML, then layer files via TOML value merge.
-        let mut merged: toml::Value = toml::Value::try_from(Self::default())
-            .map_err(|e| SigoError::Config(format!("serializing defaults: {e}")))?;
-
+        let mut layers = Vec::new();
         if let Some(xdg) = xdg_config_path() {
             if xdg.exists() {
-                let s = std::fs::read_to_string(&xdg)?;
-                let v: toml::Value = toml::from_str(&s)
-                    .map_err(|e| SigoError::Config(format!("{}: {e}", xdg.display())))?;
-                merge_into(&mut merged, v);
+                layers.push(read_toml_layer(&xdg)?);
             }
         }
         let cwd_path = PathBuf::from("./sigo.toml");
         if cwd_path.exists() {
-            let s = std::fs::read_to_string(&cwd_path)?;
-            let v: toml::Value = toml::from_str(&s)
-                .map_err(|e| SigoError::Config(format!("{}: {e}", cwd_path.display())))?;
-            merge_into(&mut merged, v);
+            layers.push(read_toml_layer(&cwd_path)?);
         }
-
-        let mut cfg: SigoConfig = merged
-            .try_into()
-            .map_err(|e| SigoError::Config(format!("merging: {e}")))?;
-        apply_env_overlay(&mut cfg, |k| std::env::var(k).ok())?;
-        Ok(cfg)
+        layered_config(layers, |k| std::env::var(k).ok())
     }
 
+    /// Same layering as [`SigoConfig::load`], but an explicit `--config <path>` substitutes
+    /// for the cwd `./sigo.toml` layer: defaults < XDG `config.toml` < `path` < `SIGO_*` env.
+    /// The named file is required (a missing path errors); the XDG base is still applied
+    /// underneath, so `--config` no longer silently discards it.
     pub fn load_from(path: &Path) -> Result<Self> {
-        let s = std::fs::read_to_string(path)?;
-        let mut cfg = parse(&s, path)?;
-        apply_env_overlay(&mut cfg, |k| std::env::var(k).ok())?;
-        Ok(cfg)
+        let mut layers = Vec::new();
+        if let Some(xdg) = xdg_config_path() {
+            if xdg.exists() {
+                layers.push(read_toml_layer(&xdg)?);
+            }
+        }
+        layers.push(read_toml_layer(path)?);
+        layered_config(layers, |k| std::env::var(k).ok())
     }
 
     /// Resolved log path: configured path, else `$XDG_DATA_HOME/sigo/turns.jsonl`.
@@ -264,8 +258,28 @@ fn xdg_config_path() -> Option<PathBuf> {
     dirs::config_dir().map(|d| d.join("sigo").join("config.toml"))
 }
 
-fn parse(s: &str, path: &Path) -> Result<SigoConfig> {
-    toml::from_str(s).map_err(|e| SigoError::Config(format!("{}: {e}", path.display())))
+fn read_toml_layer(path: &Path) -> Result<toml::Value> {
+    let s = std::fs::read_to_string(path)?;
+    toml::from_str(&s).map_err(|e| SigoError::Config(format!("{}: {e}", path.display())))
+}
+
+/// Merge `layers` (low → high) over the built-in defaults, then apply the `SIGO_*` env
+/// overlay (which beats every file). Shared by `load` and `load_from` so the precedence is
+/// identical regardless of how the top file layer was chosen.
+fn layered_config(
+    layers: Vec<toml::Value>,
+    get_env: impl Fn(&str) -> Option<String>,
+) -> Result<SigoConfig> {
+    let mut merged: toml::Value = toml::Value::try_from(SigoConfig::default())
+        .map_err(|e| SigoError::Config(format!("serializing defaults: {e}")))?;
+    for v in layers {
+        merge_into(&mut merged, v);
+    }
+    let mut cfg: SigoConfig = merged
+        .try_into()
+        .map_err(|e| SigoError::Config(format!("merging config: {e}")))?;
+    apply_env_overlay(&mut cfg, get_env)?;
+    Ok(cfg)
 }
 
 /// Recursively merge `src` into `dst`. Tables are merged field-by-field; non-table values are
@@ -378,6 +392,23 @@ mod tests {
             cfg.benchmark.log_path,
             Some(PathBuf::from("/data/turns.jsonl"))
         );
+    }
+
+    #[test]
+    fn layered_config_applies_defaults_xdg_top_env_in_order() {
+        // Simulates the --config path: an XDG base layer, a top file (the named --config),
+        // and an env overlay — proving the named file does NOT discard the XDG layer.
+        let xdg: toml::Value = toml::from_str(
+            "[claude]\nbackend = \"claude-code\"\n[translator]\nmodel = \"from-xdg\"",
+        )
+        .unwrap();
+        let top: toml::Value = toml::from_str("[translator]\nmodel = \"from-top\"").unwrap();
+        let env = |k: &str| (k == "SIGO_CLAUDE_MODEL").then(|| "from-env".to_string());
+        let cfg = layered_config(vec![xdg, top], env).unwrap();
+        assert_eq!(cfg.claude.backend, "claude-code"); // from XDG — survives under the top file
+        assert_eq!(cfg.translator.model, "from-top"); // top file overrides XDG
+        assert_eq!(cfg.claude.model, "from-env"); // env overrides every file
+        assert_eq!(cfg.translator.endpoint, "http://localhost:11434"); // default preserved
     }
 
     #[test]
