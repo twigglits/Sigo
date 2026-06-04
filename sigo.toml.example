@@ -1,0 +1,29 @@
+# Copy to ./sigo.toml (gitignored) or $XDG_CONFIG_HOME/sigo/config.toml and edit.
+# Any value here can also be overridden by a SIGO_* env var or a CLI flag.
+
+[translator]
+provider = "ollama"
+endpoint = "http://localhost:11434"
+model = "qwen2.5:7b"
+timeout_seconds = 60
+
+[claude]
+backend = "api"            # or "claude-code"
+model = "claude-sonnet-4-6"
+max_tokens = 4096
+
+[claude.claude_code]
+binary = "claude"
+extra_args = []
+
+[benchmark]
+control_mode = "prompt-only"   # off | prompt-only | full
+
+[repl]
+verbose = false
+
+[pricing]
+input_per_mtok       = 3.0
+output_per_mtok      = 15.0
+cache_read_per_mtok  = 0.30
+cache_write_per_mtok = 3.75

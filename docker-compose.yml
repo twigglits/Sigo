@@ -1,0 +1,47 @@
+services:
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama-models:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1 || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  # One-shot: pull the translator model into the bundled Ollama, then exit.
+  model-init:
+    image: ollama/ollama:latest
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["ollama"]
+    command: ["pull", "${SIGO_TRANSLATOR_MODEL:-qwen2.5:7b}"]
+    restart: "no"
+
+  sigo:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ghcr.io/twigglits/sigo:latest
+    depends_on:
+      model-init:
+        condition: service_completed_successfully
+    environment:
+      SIGO_TRANSLATOR_ENDPOINT: http://ollama:11434
+      SIGO_TRANSLATOR_MODEL: ${SIGO_TRANSLATOR_MODEL:-qwen2.5:7b}
+      SIGO_CLAUDE_BACKEND: api
+      SIGO_CLAUDE_MODEL: ${SIGO_CLAUDE_MODEL:-claude-sonnet-4-6}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?set ANTHROPIC_API_KEY in .env}
+      SIGO_LOG_PATH: /data/turns.jsonl
+    volumes:
+      - sigo-data:/data
+    stdin_open: true
+    tty: true
+
+volumes:
+  ollama-models:
+  sigo-data:

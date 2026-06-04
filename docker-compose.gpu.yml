@@ -1,0 +1,12 @@
+# Opt-in NVIDIA GPU acceleration for the bundled Ollama.
+# Requires the NVIDIA Container Toolkit on the host.
+# Usage: docker compose -f docker-compose.yml -f docker-compose.gpu.yml run --rm sigo
+services:
+  ollama:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
