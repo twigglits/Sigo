@@ -11,14 +11,14 @@ license = "MIT"
 [workspace.dependencies]
 async-trait = "0.1"
 anyhow = "1"
-thiserror = "1"
+thiserror = "2"
 tokio = { version = "1", features = ["full"] }
 tokio-stream = "0.1"
 futures = "0.3"
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-toml = "0.8"
+toml = "1"
 clap = { version = "4", features = ["derive", "env"] }
 rustyline = "14"
 eventsource-stream = "0.2"
@@ -26,5 +26,5 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
-dirs = "5"
+dirs = "6"
 insta = { version = "1", features = ["json"] }
