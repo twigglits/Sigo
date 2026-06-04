@@ -12,8 +12,6 @@ pub struct Summary {
     pub mean_zh_prompt_local: f64,
     pub mean_zh_prompt_reported: Option<f64>,
     pub mean_zh_response_reported: Option<f64>,
-    pub calibration_factor: Option<f64>,
-    pub estimated_savings_pct: Option<f64>,
     pub cumulative_zh_prompt_local: u32,
     pub cumulative_en_prompt_local: u32,
 }
@@ -48,31 +46,13 @@ pub fn summarize(records: &[TurnRecord]) -> Summary {
     let mean_zh_prompt_local =
         records.iter().map(|r| r.chinese_prompt_tokens_local as f64).sum::<f64>() / n;
 
-    let reported_pairs: Vec<(u32, u32)> = records
+    let reported_vals: Vec<u32> = records
         .iter()
-        .filter_map(|r| {
-            r.chinese_prompt_tokens_reported
-                .map(|rep| (r.chinese_prompt_tokens_local, rep))
-        })
+        .filter_map(|r| r.chinese_prompt_tokens_reported)
         .collect();
 
-    let calibration_factor = if !reported_pairs.is_empty() {
-        let ratios: Vec<f64> = reported_pairs
-            .iter()
-            .filter(|(local, _)| *local > 0)
-            .map(|(local, rep)| *rep as f64 / *local as f64)
-            .collect();
-        if ratios.is_empty() {
-            None
-        } else {
-            Some(ratios.iter().sum::<f64>() / ratios.len() as f64)
-        }
-    } else {
-        None
-    };
-
-    let mean_zh_prompt_reported = if !reported_pairs.is_empty() {
-        Some(reported_pairs.iter().map(|(_, r)| *r as f64).sum::<f64>() / reported_pairs.len() as f64)
+    let mean_zh_prompt_reported = if !reported_vals.is_empty() {
+        Some(reported_vals.iter().map(|&r| r as f64).sum::<f64>() / reported_vals.len() as f64)
     } else {
         None
     };
@@ -85,18 +65,6 @@ pub fn summarize(records: &[TurnRecord]) -> Summary {
         Some(response_reported.iter().sum::<u32>() as f64 / response_reported.len() as f64)
     } else {
         None
-    };
-
-    let estimated_savings_pct = match (mean_zh_prompt_reported, calibration_factor) {
-        (Some(zh_rep), Some(cal)) if mean_en_prompt_local > 0.0 => {
-            let en_estimated = mean_en_prompt_local * cal;
-            if en_estimated > 0.0 {
-                Some((zh_rep - en_estimated) / en_estimated * 100.0)
-            } else {
-                None
-            }
-        }
-        _ => None,
     };
 
     let cumulative_zh_prompt_local = records
@@ -122,8 +90,6 @@ pub fn summarize(records: &[TurnRecord]) -> Summary {
         mean_zh_prompt_local,
         mean_zh_prompt_reported,
         mean_zh_response_reported,
-        calibration_factor,
-        estimated_savings_pct,
         cumulative_zh_prompt_local,
         cumulative_en_prompt_local,
     }
@@ -184,13 +150,12 @@ mod tests {
     }
 
     #[test]
-    fn summary_basic_calibration_and_savings() {
-        // EN local 10, ZH local 8, ZH reported 12 → calibration 12/8 = 1.5;
-        // estimated EN reported = 10*1.5 = 15; savings = (12-15)/15 = -20%
+    fn summary_reports_counts_without_inventing_an_estimate() {
         let recs = vec![rec(10, 8, Some(12))];
         let s = summarize(&recs);
-        assert!((s.calibration_factor.unwrap() - 1.5).abs() < 1e-9);
-        let savings = s.estimated_savings_pct.unwrap();
-        assert!((savings - (-20.0)).abs() < 1e-6, "got {savings}");
+        assert_eq!(s.turn_count, 1);
+        assert!((s.mean_en_prompt_local - 10.0).abs() < 1e-9);
+        assert!((s.mean_zh_prompt_local - 8.0).abs() < 1e-9);
+        assert_eq!(s.mean_zh_prompt_reported, Some(12.0));
     }
 }

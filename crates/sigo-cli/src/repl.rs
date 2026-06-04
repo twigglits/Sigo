@@ -187,9 +187,6 @@ async fn handle_slash(rest: &str, state: &mut ReplState, config: &SigoConfig) ->
                         "[session {}] turns={}  zh-local-mean={:.1}  en-local-mean={:.1}",
                         session_id, s.turn_count, s.mean_zh_prompt_local, s.mean_en_prompt_local
                     );
-                    if let Some(v) = s.estimated_savings_pct {
-                        println!("            estimated savings: {:+.1}% vs EN", v);
-                    }
                 }
                 Err(e) => println!("read bench log: {e}"),
             }

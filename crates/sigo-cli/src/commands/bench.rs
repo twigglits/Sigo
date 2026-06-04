@@ -24,12 +24,6 @@ pub async fn run(config: &SigoConfig, cmd: BenchCommand) -> Result<()> {
             if let Some(v) = s.mean_zh_response_reported {
                 println!("mean ZH-response reported: {:.1}", v);
             }
-            if let Some(v) = s.calibration_factor {
-                println!("calibration factor:   {:.3}", v);
-            }
-            if let Some(v) = s.estimated_savings_pct {
-                println!("estimated savings:    {:+.1}% vs EN", v);
-            }
             println!("cumulative ZH-prompt local: {}", s.cumulative_zh_prompt_local);
             println!("cumulative EN-prompt local: {}", s.cumulative_en_prompt_local);
         }

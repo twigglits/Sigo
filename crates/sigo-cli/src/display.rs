@@ -10,9 +10,7 @@ impl Display {
     }
 
     pub fn print_turn_footer(&self, record: &TurnRecord) {
-        let savings = estimate_savings_pct(record)
-            .map(|p| format!("{:+.0}%", p))
-            .unwrap_or_else(|| "n/a".to_string());
+        let zh_in = fmt_opt(record.chinese_prompt_tokens_reported);
         println!();
         if self.verbose {
             println!("─── ZH prompt ──────────────────");
@@ -49,8 +47,8 @@ impl Display {
             );
         }
         println!(
-            "[turn {} · {} ms · {} vs EN local-est]",
-            record.turn_index, record.turn_total_ms, savings
+            "[turn {} · {} ms · ZH-in {} reported vs EN-proxy {} local]",
+            record.turn_index, record.turn_total_ms, zh_in, record.english_prompt_tokens_local
         );
         if !record.turn_errors.is_empty() {
             println!("(turn-errors: {})", record.turn_errors.join("; "));
@@ -63,23 +61,4 @@ impl Display {
 
 fn fmt_opt(v: Option<u32>) -> String {
     v.map(|x| x.to_string()).unwrap_or_else(|| "—".to_string())
-}
-
-fn estimate_savings_pct(record: &TurnRecord) -> Option<f64> {
-    if record.english_prompt_tokens_local == 0 {
-        return None;
-    }
-    let calibration = match (record.chinese_prompt_tokens_local, record.chinese_prompt_tokens_reported) {
-        (0, _) | (_, None) => 1.0,
-        (l, Some(r)) if l > 0 => r as f64 / l as f64,
-        _ => 1.0,
-    };
-    let estimated_en_reported = record.english_prompt_tokens_local as f64 * calibration;
-    let actual_zh_reported = record
-        .chinese_prompt_tokens_reported
-        .unwrap_or(record.chinese_prompt_tokens_local) as f64;
-    if estimated_en_reported == 0.0 {
-        return None;
-    }
-    Some((actual_zh_reported - estimated_en_reported) / estimated_en_reported * 100.0)
 }
