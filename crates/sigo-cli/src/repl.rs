@@ -40,8 +40,12 @@ pub fn build_orchestrator(config: &SigoConfig) -> Result<Orchestrator> {
         backend_kind,
         claude_model: config.claude.model.clone(),
         translator_model: config.translator.model.clone(),
-        control_mode: ControlMode::parse(&config.benchmark.control_mode)
-            .unwrap_or(ControlMode::PromptOnly),
+        control_mode: ControlMode::parse(&config.benchmark.control_mode).with_context(|| {
+            format!(
+                "invalid benchmark.control_mode `{}` (expected off | prompt-only | full)",
+                config.benchmark.control_mode
+            )
+        })?,
     };
     Ok(Orchestrator::new(cfg, translator, backend, tokenizer, sink))
 }

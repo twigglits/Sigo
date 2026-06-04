@@ -2,7 +2,7 @@ use anyhow::Result;
 use sigo_core::{read_jsonl, summarize, SigoConfig, TurnRecord};
 use uuid::Uuid;
 
-use crate::cli::BenchCommand;
+use crate::cli::{BenchCommand, ExportFormat};
 use crate::commands::bench_run::{self, RunOptions};
 
 pub async fn run(config: &SigoConfig, cmd: BenchCommand) -> Result<()> {
@@ -45,13 +45,13 @@ pub async fn run(config: &SigoConfig, cmd: BenchCommand) -> Result<()> {
         }
         BenchCommand::Export { format, session } => {
             let filtered = filter(&records, session.as_deref(), None);
-            match format.as_str() {
-                "jsonl" => {
+            match format {
+                ExportFormat::Jsonl => {
                     for r in &filtered {
                         println!("{}", serde_json::to_string(r)?);
                     }
                 }
-                "csv" => {
+                ExportFormat::Csv => {
                     println!("session_id,turn_index,backend,en_prompt_local,zh_prompt_local,zh_prompt_reported,zh_response_reported,turn_total_ms");
                     for r in &filtered {
                         println!(
@@ -71,7 +71,6 @@ pub async fn run(config: &SigoConfig, cmd: BenchCommand) -> Result<()> {
                         );
                     }
                 }
-                other => anyhow::bail!("unknown format `{other}` (use `jsonl` or `csv`)"),
             }
         }
         BenchCommand::Run {
@@ -89,7 +88,7 @@ pub async fn run(config: &SigoConfig, cmd: BenchCommand) -> Result<()> {
                     label,
                     limit,
                     out_dir,
-                    eval,
+                    eval: eval.map(|e| e.as_str().to_string()),
                     samples,
                 },
             )

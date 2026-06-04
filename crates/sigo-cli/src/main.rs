@@ -18,8 +18,8 @@ async fn main() -> Result<()> {
         SigoConfig::load().context("loading config")?
     };
 
-    if let Some(b) = &args.backend {
-        config.claude.backend = b.clone();
+    if let Some(b) = args.backend {
+        config.claude.backend = b.as_config_str().to_string();
     }
     if let Some(m) = &args.claude_model {
         config.claude.model = m.clone();
@@ -27,8 +27,8 @@ async fn main() -> Result<()> {
     if let Some(m) = &args.translator_model {
         config.translator.model = m.clone();
     }
-    if let Some(c) = &args.control_mode {
-        config.benchmark.control_mode = c.clone();
+    if let Some(c) = args.control_mode {
+        config.benchmark.control_mode = c.as_config_str().to_string();
     }
 
     let verbose = args.verbose || config.repl.verbose;
