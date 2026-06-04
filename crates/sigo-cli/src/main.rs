@@ -41,5 +41,6 @@ async fn main() -> Result<()> {
         }
         Some(Command::Doctor) => commands::doctor::run(&config).await,
         Some(Command::Bench { bench }) => commands::bench::run(&config, bench).await,
+        Some(Command::Chat { prompt }) => commands::chat::run(&config, prompt, verbose).await,
     }
 }

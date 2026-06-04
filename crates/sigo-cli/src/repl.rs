@@ -17,7 +17,9 @@ pub struct ReplState {
     pub display: Display,
 }
 
-pub async fn run(config: SigoConfig, verbose: bool) -> Result<()> {
+/// Build the full orchestrator stack (translator + backend + tokenizer + sink) from config.
+/// Shared by the REPL and the one-shot `chat` command.
+pub fn build_orchestrator(config: &SigoConfig) -> Result<Orchestrator> {
     let translator: Arc<dyn Translator> = Arc::new(OllamaTranslator::new(
         &config.translator.endpoint,
         &config.translator.model,
@@ -25,7 +27,7 @@ pub async fn run(config: SigoConfig, verbose: bool) -> Result<()> {
     ));
 
     let backend_kind = parse_backend(&config.claude.backend)?;
-    let backend: Arc<dyn ClaudeBackend> = build_backend(backend_kind, &config)?;
+    let backend: Arc<dyn ClaudeBackend> = build_backend(backend_kind, config)?;
 
     let tokenizer: Arc<dyn Tokenizer> = Arc::new(
         TokenizerProxy::new().context("failed to initialize o200k_base proxy tokenizer")?,
@@ -39,9 +41,18 @@ pub async fn run(config: SigoConfig, verbose: bool) -> Result<()> {
         backend_kind,
         claude_model: config.claude.model.clone(),
         translator_model: config.translator.model.clone(),
-        control_mode: ControlMode::parse(&config.benchmark.control_mode).unwrap_or(ControlMode::PromptOnly),
+        control_mode: ControlMode::parse(&config.benchmark.control_mode)
+            .unwrap_or(ControlMode::PromptOnly),
     };
-    let orchestrator = Orchestrator::new(cfg, translator, backend, tokenizer, sink);
+    Ok(Orchestrator::new(cfg, translator, backend, tokenizer, sink))
+}
+
+pub async fn run(config: SigoConfig, verbose: bool) -> Result<()> {
+    crate::commands::checks::preflight_translator(&config)
+        .await
+        .context("translator preflight failed")?;
+
+    let orchestrator = build_orchestrator(&config)?;
 
     let mut state = ReplState {
         orchestrator,

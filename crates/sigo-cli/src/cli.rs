@@ -37,6 +37,12 @@ pub enum Command {
         #[command(subcommand)]
         bench: BenchCommand,
     },
+    /// Run a single turn non-interactively. Prompt from the argument, or stdin if omitted.
+    /// Answer goes to stdout; a one-line summary goes to stderr with --verbose.
+    Chat {
+        /// The English prompt. If omitted, read the whole of stdin.
+        prompt: Option<String>,
+    },
 }
 
 #[derive(Debug, Subcommand)]
