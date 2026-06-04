@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/sigo-core", "crates/sigo-cli", "crates/sigo-notes"]
+members = ["crates/sigo-core", "crates/sigo-cli"]
 
 [workspace.package]
 version = "0.1.0"
