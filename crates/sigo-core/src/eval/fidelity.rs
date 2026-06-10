@@ -26,7 +26,14 @@ pub fn parse_score(s: &str) -> Option<u8> {
 }
 
 /// Round-trip prompt fidelity: back-translate `zh_prompt` to English, then judge
-/// closeness to `original_en`. Returns `None` on any failure (diagnostic only).
+/// constraint recall against `original_en`. Returns `None` on any failure
+/// (diagnostic only — never gates results).
+///
+/// Caveats baked into this design: the same local model usually does both
+/// translation directions, so correlated errors can cancel and inflate scores;
+/// and the fluent ZH→EN back-translation can re-pad a terse ZH prompt, hiding
+/// real omissions. Treat the score as a coarse regression signal, not a
+/// quality guarantee.
 pub async fn roundtrip_fidelity(
     translator: &dyn Translator,
     judge: &dyn Judge,
@@ -40,9 +47,14 @@ pub async fn roundtrip_fidelity(
     judge.score(original_en, &back).await.ok()
 }
 
+/// Constraint-recall rubric: the pipeline deliberately compresses register
+/// (terse translation), so the judge must score only the retention of
+/// Claude-relevant content, never style.
 const RUBRIC: &str = "You compare two English texts: ORIGINAL and CANDIDATE. \
-Reply with ONLY a single integer 0-10 for how completely CANDIDATE preserves the \
-meaning and intent of ORIGINAL (10 = identical meaning, 0 = unrelated).";
+Reply with ONLY a single integer 0-10 scoring whether CANDIDATE retains every \
+fact, constraint, number, name, negation, and instruction of ORIGINAL \
+(10 = everything retained, 0 = nothing retained). \
+Do NOT penalize brevity, politeness, tone, or phrasing differences.";
 
 /// Ollama-backed judge, mirroring `OllamaTranslator`'s `/api/chat` shape.
 pub struct OllamaJudge {
@@ -158,6 +170,30 @@ impl Judge for OllamaJudge {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rubric_scores_constraint_recall_not_brevity() {
+        // With the terse translation register, a completeness-phrased rubric
+        // would punish dropped politeness/filler rather than lost meaning. The
+        // rubric must score retention of Claude-relevant content only, and must
+        // explicitly tell the judge what NOT to penalize.
+        for clause in [
+            "fact",
+            "constraint",
+            "number",
+            "name",
+            "negation",
+            "instruction",
+        ] {
+            assert!(RUBRIC.contains(clause), "missing recall clause: {clause}");
+        }
+        for clause in ["brevity", "politeness", "tone"] {
+            assert!(
+                RUBRIC.contains(clause),
+                "rubric must tell the judge to ignore {clause}"
+            );
+        }
+    }
 
     #[test]
     fn parses_various_score_shapes() {
