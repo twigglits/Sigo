@@ -1,20 +1,27 @@
 name: Version
 
-# Cut a release: computes the next SemVer increment from conventional commits
-# (or takes an explicit override), bumps every workspace version in lockstep
-# (Cargo.toml, the sigo-cli -> sigo-core dependency pin, Cargo.lock), commits,
-# tags, and chains into the Release workflow for that tag.
+# Automatic release versioning (semantic-release convention): every push to
+# main computes the next SemVer increment from the conventional commits since
+# the last v* tag — breaking -> major (minor while on 0.x), feat -> minor,
+# fix/perf/revert -> patch, docs/chore/ci/etc-only -> no release. When a
+# release is due it bumps every workspace version in lockstep (Cargo.toml, the
+# sigo-cli -> sigo-core dependency pin, Cargo.lock), commits, tags, and chains
+# into the Release workflow for that tag. Manual dispatch can force a release
+# or override the increment (the only way to cut 1.0.0 from 0.x is `major`).
 #
-# Dispatch-chaining instead of relying on the tag push: tags pushed with the
-# default GITHUB_TOKEN do not trigger `on: push: tags` workflows (GitHub's
-# recursion guard), but workflow_dispatch is exempt. Manually pushed tags
-# still trigger Release directly, exactly as before.
+# Dispatch-chaining instead of relying on the tag push: refs pushed with the
+# default GITHUB_TOKEN do not trigger `on: push` workflows (GitHub's recursion
+# guard — which also makes a self-retrigger loop of this workflow impossible),
+# but workflow_dispatch is exempt. Manually pushed tags still trigger Release
+# directly, exactly as before.
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       bump:
-        description: "Increment (auto = derive from conventional commits since the last tag)"
+        description: "Increment (auto = derive from conventional commits since the last tag; patch/minor/major force a release)"
         type: choice
         options: [auto, patch, minor, major]
         default: auto
@@ -23,23 +30,44 @@ permissions:
   contents: write
   actions: write
 
+# Serialize: two rapid pushes must not race the bump-commit-tag sequence.
+concurrency:
+  group: version-release
+  cancel-in-progress: false
+
 jobs:
   bump-tag-release:
     runs-on: ubuntu-latest
+    # Never run on the release commit itself (only reachable via a non-default
+    # token; the default GITHUB_TOKEN cannot retrigger this workflow anyway).
+    if: ${{ !startsWith(github.event.head_commit.message, 'chore(release):') }}
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0 # next-version.sh needs full history and tags
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-edit
       - name: Compute next version
         id: next
         env:
-          BUMP: ${{ inputs.bump }}
-        run: echo "version=$(scripts/next-version.sh "$BUMP")" >> "$GITHUB_OUTPUT"
+          BUMP: ${{ inputs.bump || 'auto' }}
+        run: |
+          set +e
+          version=$(scripts/next-version.sh "$BUMP")
+          rc=$?
+          set -e
+          case "$rc" in
+            0) echo "version=$version" >> "$GITHUB_OUTPUT" ;;
+            3) echo "skip=true" >> "$GITHUB_OUTPUT"
+               echo "No release-worthy commits since the last tag — skipping." ;;
+            *) exit "$rc" ;;
+          esac
+      - uses: dtolnay/rust-toolchain@stable
+        if: ${{ steps.next.outputs.skip != 'true' }}
+      - uses: taiki-e/install-action@v2
+        if: ${{ steps.next.outputs.skip != 'true' }}
+        with:
+          tool: cargo-edit
       - name: Bump workspace versions in lockstep
+        if: ${{ steps.next.outputs.skip != 'true' }}
         env:
           NEXT: ${{ steps.next.outputs.version }}
         run: |
@@ -49,6 +77,7 @@ jobs:
           # Sync Cargo.lock to the new member versions.
           cargo update --workspace
       - name: Verify the bump landed everywhere
+        if: ${{ steps.next.outputs.skip != 'true' }}
         env:
           NEXT: ${{ steps.next.outputs.version }}
         run: |
@@ -57,8 +86,10 @@ jobs:
           # next build breaks (a ^0.x requirement excludes 0.(x+1)).
           grep -q "version = \"$NEXT\"" crates/sigo-cli/Cargo.toml
           grep -q "name = \"sigo-core\"" Cargo.lock
-          cargo metadata --format-version 1 --no-deps >/dev/null
+          # Resolves the dependency graph, so a stale pin fails here.
+          cargo metadata --format-version 1 >/dev/null
       - name: Commit, tag, push
+        if: ${{ steps.next.outputs.skip != 'true' }}
         env:
           NEXT: ${{ steps.next.outputs.version }}
         run: |
@@ -68,6 +99,7 @@ jobs:
           git tag "v$NEXT"
           git push origin "HEAD:${GITHUB_REF_NAME}" "v$NEXT"
       - name: Start the Release pipeline for the new tag
+        if: ${{ steps.next.outputs.skip != 'true' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NEXT: ${{ steps.next.outputs.version }}

@@ -354,20 +354,23 @@ cargo test -p sigo-core --features live
 
 ### Releasing
 
-Releases are cut from the **Version** workflow (Actions → Version → Run
-workflow). It derives the SemVer increment from the conventional commits since
-the last tag — breaking change → major (minor while on 0.x), `feat` → minor,
-anything else → patch — or takes an explicit `patch`/`minor`/`major` override
-(`major` is the only way to cut 1.0.0 from 0.x). The same computation runs
-locally via `scripts/next-version.sh [auto|patch|minor|major]`.
+Releases are **automatic**: every push to `main` runs the **Version** workflow,
+which derives the SemVer increment from the conventional commits since the last
+tag (semantic-release convention) — breaking change → major (minor while on
+0.x), `feat` → minor, `fix`/`perf`/`revert` → patch, and pushes containing only
+docs/chore/ci/refactor/test commits release **nothing**. Manual dispatch
+(Actions → Version → Run workflow) forces a release with an explicit
+`patch`/`minor`/`major` override; `major` is the only way to cut 1.0.0 from
+0.x. The same computation runs locally via
+`scripts/next-version.sh [auto|patch|minor|major]`.
 
-The workflow bumps every workspace version in lockstep (`Cargo.toml`, the
-`sigo-cli` → `sigo-core` dependency pin, `Cargo.lock`), commits
-`chore(release): vX.Y.Z`, tags, and chains into the **Release** workflow, which
-refuses to ship unless the tag matches the crate version, then builds the
-binaries, the Docker image, and the GitHub Release with generated notes.
-Manually pushed `v*` tags still trigger Release directly and are held to the
-same tag-matches-version guard.
+When a release is due, the workflow bumps every workspace version in lockstep
+(`Cargo.toml`, the `sigo-cli` → `sigo-core` dependency pin, `Cargo.lock`),
+commits `chore(release): vX.Y.Z`, tags, and chains into the **Release**
+workflow, which refuses to ship unless the tag matches the crate version, then
+builds the binaries, the Docker image, and the GitHub Release with generated
+notes. Manually pushed `v*` tags still trigger Release directly and are held
+to the same tag-matches-version guard.
 
 ## License
 

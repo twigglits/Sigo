@@ -4,18 +4,21 @@
 # Usage: scripts/next-version.sh [auto|patch|minor|major]   (default: auto)
 # Prints the bare next version (e.g. "0.2.0") on stdout; rationale on stderr.
 #
-# Auto rules over commits since the last v* tag:
+# Auto rules over commits since the last v* tag (semantic-release convention):
 #   - breaking change ("type!:" subject or "BREAKING CHANGE" in body) -> major,
 #     EXCEPT while still on 0.x, where breaking bumps minor (Cargo's 0.x
 #     semantics); 1.0.0 is only ever cut deliberately via the "major" override.
 #   - any feat -> minor
-#   - anything else (fix, perf, docs, chore, ci, refactor, test, ...) -> patch
+#   - any fix, perf, or revert -> patch
+#   - ONLY docs/chore/ci/refactor/test/style/build commits -> exit 3,
+#     "no release needed" (an explicit patch/minor/major override still forces).
 #
-# Guards: refuses to run if the workspace Cargo.toml version does not match the
-# last tag (the two must never drift), or if there is nothing to release.
+# Exit codes: 0 = version printed; 1 = guard failure (drift / no commits);
+#             2 = bad usage; 3 = nothing release-worthy in auto mode.
 set -euo pipefail
 
 bump="${1:-auto}"
+[ -n "$bump" ] || bump="auto"
 case "$bump" in
   auto|patch|minor|major) ;;
   *) echo "usage: $0 [auto|patch|minor|major]" >&2; exit 2 ;;
@@ -44,13 +47,16 @@ fi
 IFS=. read -r major minor patch <<<"$cargo_version"
 
 if [ "$bump" = "auto" ]; then
-  bump="patch"
-  if git log --format=%s "$range" | grep -Eq '^[a-z]+(\([^)]*\))?!:'; then
-    bump="major"
-  elif git log --format=%B "$range" | grep -Eq '^BREAKING[ -]CHANGE:'; then
+  if git log --format=%s "$range" | grep -Eq '^[a-z]+(\([^)]*\))?!:' ||
+     git log --format=%B "$range" | grep -Eq '^BREAKING[ -]CHANGE:'; then
     bump="major"
   elif git log --format=%s "$range" | grep -Eq '^feat(\([^)]*\))?:'; then
     bump="minor"
+  elif git log --format=%s "$range" | grep -Eq '^(fix|perf|revert)(\([^)]*\))?:'; then
+    bump="patch"
+  else
+    echo "no release needed: none of the $count commit(s) since ${last_tag:-the beginning} are feat/fix/perf/breaking" >&2
+    exit 3
   fi
   if [ "$bump" = "major" ] && [ "$major" -eq 0 ]; then
     echo "note: breaking change on 0.x bumps minor; use an explicit 'major' argument to cut 1.0.0" >&2
