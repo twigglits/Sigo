@@ -195,15 +195,27 @@ the bench artifacts so their effects stay attributable and falsifiable:
   CJK, never URLs/paths). Each turn both forms are counted with the proxy and
   the cheaper one is sent, so the step cannot lose tokens. The pre-compaction
   count is recorded per turn (`chinese_prompt_tokens_precompact_local`).
+- **Translate-not-answer protocol + structural code masking.** A live corpus
+  sweep caught the local translator *answering* instruction-shaped prompts
+  instead of translating them (and, separately, solving or dropping code it was
+  supposed to pass through). The translator now sends `<source>`-wrapped text
+  with few-shot demonstrations, and code spans never reach the model at all —
+  they are masked behind sentinels in Rust and reinstated byte-for-byte. On the
+  bundled 40-prompt sweep this took the pipeline from **+36% vs English (with
+  silent prompt corruption) to +4.8% vs English with zero detected constraint
+  losses** (proxy counts; code prompts at +0.3% ≈ parity).
 
 What may NOT be claimed from this: all numbers above are `o200k_base` **proxy**
-counts, not Claude's non-public tokenizer; the only live paired bench to date
-(N=2, fluent register) found **EN cheaper on every layer**, and the terse
-pipeline has not yet been live-benched; output tokens dominate cost 3–5× and
-are not controlled by prompt-side changes; and terse-vs-verbatim conflates
-compression with language — attributing the split needs a terse-English control
-arm, which does not exist yet. The verdict instrument remains
-`sigo bench run --eval coding` (cost per passing task, paired, CIs).
+counts, not Claude's non-public tokenizer; on the bundled corpora (already-terse
+technical English) direct English remains slightly cheaper than the ZH pipeline
+under the proxy — the terse-ZH wins appear on verbose, redundancy-rich prose;
+the only live paired bench to date (N=2, fluent register) found **EN cheaper on
+every layer**, and the terse pipeline has not yet been live-benched; output
+tokens dominate cost 3–5× and are not controlled by prompt-side changes; and
+terse-vs-verbatim conflates compression with language — attributing the split
+needs a terse-English control arm, which does not exist yet. The verdict
+instrument remains `sigo bench run --eval coding` (cost per passing task,
+paired, CIs).
 
 ## Benchmark methodology
 
