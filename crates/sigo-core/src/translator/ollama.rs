@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
 use super::{prompts, Translator};
+use crate::config::TranslatorStyle;
 use crate::conversation::Direction;
 use crate::error::{Result, SigoError};
 
@@ -79,7 +80,7 @@ impl OllamaTranslator {
             endpoint: endpoint.into(),
             model: model.into(),
             timeout,
-            en_to_zh_system: prompts::EN_TO_ZH_SYSTEM.to_string(),
+            en_to_zh_system: prompts::EN_TO_ZH_TERSE_SYSTEM.to_string(),
             zh_to_en_system: prompts::ZH_TO_EN_SYSTEM.to_string(),
             options: GenOptions::default(),
             keep_alive: "30m".to_string(),
@@ -89,6 +90,17 @@ impl OllamaTranslator {
     pub fn with_system_prompts(mut self, en_to_zh: String, zh_to_en: String) -> Self {
         self.en_to_zh_system = en_to_zh;
         self.zh_to_en_system = zh_to_en;
+        self
+    }
+
+    /// Select the EN→ZH register. The ZH→EN prompt is style-independent: it
+    /// produces the displayed answer and feeds the English control arm.
+    pub fn with_style(mut self, style: TranslatorStyle) -> Self {
+        self.en_to_zh_system = match style {
+            TranslatorStyle::Terse => prompts::EN_TO_ZH_TERSE_SYSTEM,
+            TranslatorStyle::Fluent => prompts::EN_TO_ZH_FLUENT_SYSTEM,
+        }
+        .to_string();
         self
     }
 
@@ -161,6 +173,23 @@ mod tests {
     }
 
     #[test]
+    fn build_body_selects_system_prompt_by_style() {
+        // Default register is terse (the token-minimizing product default).
+        let t = translator();
+        let body = t.build_body("hello", Direction::EnToZh);
+        assert_eq!(body.messages[0].content, prompts::EN_TO_ZH_TERSE_SYSTEM);
+
+        let t = translator().with_style(TranslatorStyle::Fluent);
+        let body = t.build_body("hello", Direction::EnToZh);
+        assert_eq!(body.messages[0].content, prompts::EN_TO_ZH_FLUENT_SYSTEM);
+
+        // ZH->EN is style-independent.
+        let t = translator().with_style(TranslatorStyle::Terse);
+        let body = t.build_body("你好", Direction::ZhToEn);
+        assert_eq!(body.messages[0].content, prompts::ZH_TO_EN_SYSTEM);
+    }
+
+    #[test]
     fn request_pins_determinism_and_context_options() {
         let t = translator();
         let body = t.build_body("hello", Direction::EnToZh);
@@ -186,6 +215,26 @@ mod tests {
 #[cfg(all(test, feature = "live"))]
 mod live_tests {
     use super::*;
+
+    #[tokio::test]
+    async fn terse_translation_preserves_numbers_and_identifiers() {
+        let t = OllamaTranslator::new(
+            "http://localhost:11434",
+            "qwen2.5:7b",
+            Duration::from_secs(120),
+        );
+        let zh = t
+            .translate(
+                "Do not change the public signature of parse_config in src/config.rs; \
+                 all 12 existing tests must still pass.",
+                Direction::EnToZh,
+            )
+            .await
+            .unwrap();
+        assert!(zh.contains("12"), "number lost in terse ZH: {zh}");
+        assert!(zh.contains("parse_config"), "identifier lost: {zh}");
+        assert!(zh.contains("src/config.rs"), "path lost: {zh}");
+    }
 
     #[tokio::test]
     async fn roundtrip_against_local_ollama() {

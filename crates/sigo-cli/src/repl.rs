@@ -20,11 +20,14 @@ pub struct ReplState {
 /// Build the full orchestrator stack (translator + backend + tokenizer + sink) from config.
 /// Shared by the REPL and the one-shot `chat` command.
 pub fn build_orchestrator(config: &SigoConfig) -> Result<Orchestrator> {
-    let translator: Arc<dyn Translator> = Arc::new(OllamaTranslator::new(
-        &config.translator.endpoint,
-        &config.translator.model,
-        Duration::from_secs(config.translator.timeout_seconds),
-    ));
+    let translator: Arc<dyn Translator> = Arc::new(
+        OllamaTranslator::new(
+            &config.translator.endpoint,
+            &config.translator.model,
+            Duration::from_secs(config.translator.timeout_seconds),
+        )
+        .with_style(config.translator.style),
+    );
 
     let backend_kind = parse_backend(&config.claude.backend)?;
     let backend: Arc<dyn ClaudeBackend> = build_backend(backend_kind, config)?;
@@ -148,11 +151,14 @@ async fn handle_slash(rest: &str, state: &mut ReplState, config: &SigoConfig) ->
             } else {
                 match args[0] {
                     "translator" => {
-                        let new_translator: Arc<dyn Translator> = Arc::new(OllamaTranslator::new(
-                            &config.translator.endpoint,
-                            args[1],
-                            Duration::from_secs(config.translator.timeout_seconds),
-                        ));
+                        let new_translator: Arc<dyn Translator> = Arc::new(
+                            OllamaTranslator::new(
+                                &config.translator.endpoint,
+                                args[1],
+                                Duration::from_secs(config.translator.timeout_seconds),
+                            )
+                            .with_style(config.translator.style),
+                        );
                         state.orchestrator.translator = new_translator;
                         state.orchestrator.config.translator_model = args[1].to_string();
                         println!("translator model: {}", args[1]);

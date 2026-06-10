@@ -6,6 +6,7 @@ provider = "ollama"
 endpoint = "http://localhost:11434"
 model = "qwen2.5:7b"
 timeout_seconds = 60
+style = "terse"            # terse (token-minimizing, default) | fluent (baseline)
 
 [claude]
 backend = "api"            # or "claude-code"

@@ -35,11 +35,14 @@ pub async fn run(cfg: &SigoConfig, opts: RunOptions) -> Result<()> {
     let backend_kind = parse_backend_kind(&cfg.claude.backend)?;
     let cfg_for_tx = cfg.clone();
     let translator_builder: TranslatorBuilder = Arc::new(move || {
-        Arc::new(OllamaTranslator::new(
-            &cfg_for_tx.translator.endpoint,
-            &cfg_for_tx.translator.model,
-            Duration::from_secs(cfg_for_tx.translator.timeout_seconds),
-        )) as Arc<dyn Translator>
+        Arc::new(
+            OllamaTranslator::new(
+                &cfg_for_tx.translator.endpoint,
+                &cfg_for_tx.translator.model,
+                Duration::from_secs(cfg_for_tx.translator.timeout_seconds),
+            )
+            .with_style(cfg_for_tx.translator.style),
+        ) as Arc<dyn Translator>
     });
     let cfg_for_be = cfg.clone();
     let backend_builder: BackendBuilder =

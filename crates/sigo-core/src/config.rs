@@ -27,6 +27,21 @@ pub struct TranslatorConfig {
     pub model: String,
     #[serde(default = "default_translator_timeout")]
     pub timeout_seconds: u64,
+    #[serde(default)]
+    pub style: TranslatorStyle,
+}
+
+/// Register requested from the EN→ZH translator. Unknown values are rejected
+/// at parse time (serde enum), matching the CLI's ValueEnum convention.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TranslatorStyle {
+    /// Maximally concise written Chinese — the token-minimizing default.
+    #[default]
+    Terse,
+    /// Natural, fluent translation — kept so paired benchmark runs can
+    /// attribute savings to the register rather than to translation per se.
+    Fluent,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -86,6 +101,7 @@ impl Default for TranslatorConfig {
             endpoint: default_ollama_endpoint(),
             model: default_translator_model(),
             timeout_seconds: default_translator_timeout(),
+            style: TranslatorStyle::default(),
         }
     }
 }
@@ -245,6 +261,17 @@ pub fn apply_env_overlay(cfg: &mut SigoConfig, get: impl Fn(&str) -> Option<Stri
             ))
         })?;
     }
+    if let Some(v) = get("SIGO_TRANSLATOR_STYLE") {
+        cfg.translator.style = match v.as_str() {
+            "terse" => TranslatorStyle::Terse,
+            "fluent" => TranslatorStyle::Fluent,
+            _ => {
+                return Err(SigoError::Config(format!(
+                    "SIGO_TRANSLATOR_STYLE must be `terse` or `fluent`, got `{v}`"
+                )))
+            }
+        };
+    }
     if let Some(v) = get("SIGO_CONTROL_MODE") {
         cfg.benchmark.control_mode = v;
     }
@@ -326,6 +353,42 @@ mod tests {
         assert_eq!(c.claude.backend, "claude-code");
         // defaults preserved for unspecified fields
         assert_eq!(c.translator.endpoint, "http://localhost:11434");
+    }
+
+    #[test]
+    fn translator_style_defaults_to_terse() {
+        assert_eq!(
+            SigoConfig::default().translator.style,
+            TranslatorStyle::Terse
+        );
+        let parsed: SigoConfig = toml::from_str("[translator]\nmodel = \"qwen3:14b\"").unwrap();
+        assert_eq!(parsed.translator.style, TranslatorStyle::Terse);
+    }
+
+    #[test]
+    fn translator_style_parses_fluent_and_rejects_unknown() {
+        let c: SigoConfig = toml::from_str("[translator]\nstyle = \"fluent\"").unwrap();
+        assert_eq!(c.translator.style, TranslatorStyle::Fluent);
+        assert!(
+            toml::from_str::<SigoConfig>("[translator]\nstyle = \"verbose\"").is_err(),
+            "unknown style must be rejected at parse time"
+        );
+    }
+
+    #[test]
+    fn env_overlay_sets_translator_style_and_rejects_garbage() {
+        let mut cfg = SigoConfig::default();
+        apply_env_overlay(&mut cfg, |k| {
+            (k == "SIGO_TRANSLATOR_STYLE").then(|| "fluent".to_string())
+        })
+        .unwrap();
+        assert_eq!(cfg.translator.style, TranslatorStyle::Fluent);
+
+        let mut cfg = SigoConfig::default();
+        let res = apply_env_overlay(&mut cfg, |k| {
+            (k == "SIGO_TRANSLATOR_STYLE").then(|| "verbose".to_string())
+        });
+        assert!(res.is_err(), "garbage SIGO_TRANSLATOR_STYLE must error");
     }
 
     #[test]

@@ -25,7 +25,7 @@ pub use claude::{
 pub use compact::compact_zh;
 pub use config::{
     apply_env_overlay, BenchmarkConfig, ClaudeCodeConfig, ClaudeConfig, PricingConfig, ReplConfig,
-    SigoConfig, TranslatorConfig,
+    SigoConfig, TranslatorConfig, TranslatorStyle,
 };
 pub use conversation::{BackendKind, Conversation, Direction, Message, Role, Usage};
 pub use error::{Result, SigoError};
