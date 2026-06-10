@@ -19,13 +19,20 @@ type ScriptQueue = Arc<Mutex<Vec<Vec<(ScriptedItem, Duration)>>>>;
 
 pub struct FakeBackend {
     scripts: ScriptQueue,
+    sent_prompts: Arc<Mutex<Vec<String>>>,
 }
 
 impl FakeBackend {
     pub fn new() -> Self {
         Self {
             scripts: Arc::new(Mutex::new(vec![])),
+            sent_prompts: Arc::new(Mutex::new(vec![])),
         }
+    }
+
+    /// Prompts passed to `stream_turn`, in call order (control-run calls included).
+    pub fn sent_prompts(&self) -> Vec<String> {
+        self.sent_prompts.lock().unwrap().clone()
     }
 
     /// Queue an arbitrary scripted turn (chunks + optional injected errors).
@@ -79,8 +86,9 @@ impl ClaudeBackend for FakeBackend {
     async fn stream_turn(
         &self,
         _convo: &Conversation,
-        _prompt: &str,
+        prompt: &str,
     ) -> Result<BoxStream<'static, Result<ResponseChunk>>> {
+        self.sent_prompts.lock().unwrap().push(prompt.to_string());
         let next = self
             .scripts
             .lock()

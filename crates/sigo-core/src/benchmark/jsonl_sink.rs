@@ -64,6 +64,7 @@ mod tests {
             english_response: "Hello.".into(),
             english_prompt_tokens_local: 3,
             chinese_prompt_tokens_local: 2,
+            chinese_prompt_tokens_precompact_local: 2,
             chinese_response_tokens_local: 3,
             chinese_prompt_tokens_reported: Some(2),
             chinese_response_tokens_reported: Some(3),

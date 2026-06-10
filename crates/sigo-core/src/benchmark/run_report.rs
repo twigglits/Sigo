@@ -434,6 +434,7 @@ mod tests {
             english_response: "".into(),
             english_prompt_tokens_local: en_local,
             chinese_prompt_tokens_local: zh_local,
+            chinese_prompt_tokens_precompact_local: zh_local,
             chinese_response_tokens_local: 0,
             chinese_prompt_tokens_reported: Some(zh_input_rep),
             chinese_response_tokens_reported: Some(zh_out_rep),

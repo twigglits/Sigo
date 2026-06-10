@@ -23,6 +23,16 @@ pub struct TurnRecord {
 
     pub english_prompt_tokens_local: u32,
     pub chinese_prompt_tokens_local: u32,
+    /// Proxy token count of the EN→ZH translation BEFORE whitespace compaction;
+    /// `chinese_prompt`/`chinese_prompt_tokens_local` reflect what was actually
+    /// sent. Equal values mean compaction changed nothing (or was skipped by
+    /// the never-worse guard).
+    ///
+    /// Additive-field policy: new fields enter with `#[serde(default)]` so
+    /// older JSONL rows keep deserializing without a SCHEMA_VERSION bump; the
+    /// version bumps only on structural or semantic changes to existing fields.
+    #[serde(default)]
+    pub chinese_prompt_tokens_precompact_local: u32,
     pub chinese_response_tokens_local: u32,
 
     pub chinese_prompt_tokens_reported: Option<u32>,

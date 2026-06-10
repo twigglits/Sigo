@@ -128,13 +128,18 @@ impl Orchestrator {
 
         // Step 1: EN → ZH
         let translation_in_started = Instant::now();
-        let chinese_prompt = self
+        let raw_chinese_prompt = self
             .translator
             .translate(english_prompt, Direction::EnToZh)
             .await?;
         let translation_in_ms = translation_in_started.elapsed().as_millis() as u64;
 
-        // Step 2: Local token counts for both prompts.
+        // Step 2: Local token counts, and whitespace compaction of the outbound
+        // prompt guarded by a live comparison: BPE merges are nonlinear, so
+        // "compaction never costs tokens" is enforced by measurement here, not
+        // assumed. Everything downstream (send, record, history, counts) sees
+        // only the winning form; the pre-compaction count is recorded so the
+        // delta stays attributable from bench artifacts.
         let english_prompt_tokens_local = self
             .tokenizer
             .count_tokens(english_prompt)
@@ -142,13 +147,24 @@ impl Orchestrator {
                 errors.push(format!("tokenizer en prompt: {e}"));
                 0
             });
-        let chinese_prompt_tokens_local = self
+        let chinese_prompt_tokens_precompact_local = self
             .tokenizer
-            .count_tokens(&chinese_prompt)
+            .count_tokens(&raw_chinese_prompt)
             .unwrap_or_else(|e| {
-                errors.push(format!("tokenizer zh prompt: {e}"));
+                errors.push(format!("tokenizer zh prompt (precompact): {e}"));
                 0
             });
+        let compacted = crate::compact::compact_zh(&raw_chinese_prompt);
+        let compacted_tokens = self.tokenizer.count_tokens(&compacted).unwrap_or_else(|e| {
+            errors.push(format!("tokenizer zh prompt: {e}"));
+            0
+        });
+        let (chinese_prompt, chinese_prompt_tokens_local) =
+            if compacted_tokens <= chinese_prompt_tokens_precompact_local {
+                (compacted, compacted_tokens)
+            } else {
+                (raw_chinese_prompt, chinese_prompt_tokens_precompact_local)
+            };
 
         // Cumulative totals: committed history (running counter) + this prompt.
         let chinese_cumulative_prompt_tokens_local =
@@ -344,6 +360,7 @@ impl Orchestrator {
             english_response: english_response_emitted,
             english_prompt_tokens_local,
             chinese_prompt_tokens_local,
+            chinese_prompt_tokens_precompact_local,
             chinese_response_tokens_local,
             chinese_prompt_tokens_reported: reported_input,
             chinese_response_tokens_reported: reported_output,
@@ -685,6 +702,101 @@ mod tests {
             elapsed < Duration::from_millis(375),
             "translations did not overlap: {elapsed:?}"
         );
+    }
+
+    #[tokio::test]
+    async fn run_turn_sends_and_records_compacted_zh() {
+        let en = "Use tokio in Rust for concurrency.";
+        let raw_zh = "在 Rust 中使用 tokio 实现并发。";
+        let compacted = "在Rust中使用tokio实现并发。";
+        let translator = Arc::new(FakeTranslator::new());
+        translator.add_en_to_zh(en, raw_zh);
+        translator.add_zh_to_en("好。", "OK.");
+        let backend = Arc::new(FakeBackend::new());
+        backend.enqueue_simple("好。", Usage::default());
+        let sink = Arc::new(MemorySink::new());
+        let mut orch = build(translator, backend.clone(), sink);
+
+        let mut out = CollectSink::default();
+        let record = orch.run_turn(en, &mut out).await.unwrap();
+
+        // The compacted form is what is sent, recorded, counted, and committed
+        // to the replayed history; the pre-compaction count is kept alongside
+        // so savings stay attributable from bench artifacts.
+        assert_eq!(backend.sent_prompts(), vec![compacted.to_string()]);
+        assert_eq!(record.chinese_prompt, compacted);
+        assert_eq!(orch.chinese_convo.messages[0].content, compacted);
+        let tk = TokenizerProxy::new().unwrap();
+        assert_eq!(
+            record.chinese_prompt_tokens_local,
+            tk.count_tokens(compacted).unwrap()
+        );
+        assert_eq!(
+            record.chinese_prompt_tokens_precompact_local,
+            tk.count_tokens(raw_zh).unwrap()
+        );
+    }
+
+    /// Tokenizer stub under which the (shorter) compacted text counts MORE
+    /// tokens, inverting the guard's comparison.
+    struct InvertedTokenizer;
+    impl Tokenizer for InvertedTokenizer {
+        fn count_tokens(&self, text: &str) -> Result<u32> {
+            Ok(10_000u32.saturating_sub(text.chars().count() as u32))
+        }
+    }
+
+    #[tokio::test]
+    async fn compaction_guard_falls_back_to_raw_when_not_cheaper() {
+        let en = "Use tokio in Rust.";
+        let raw_zh = "在 Rust 中使用 tokio。";
+        let translator = Arc::new(FakeTranslator::new());
+        translator.add_en_to_zh(en, raw_zh);
+        translator.add_zh_to_en("好。", "OK.");
+        let backend = Arc::new(FakeBackend::new());
+        backend.enqueue_simple("好。", Usage::default());
+        let cfg = OrchestratorConfig {
+            backend_kind: BackendKind::Api,
+            claude_model: "m".into(),
+            translator_model: "t".into(),
+            control_mode: ControlMode::PromptOnly,
+        };
+        let mut orch = Orchestrator::new(
+            cfg,
+            translator,
+            backend.clone(),
+            Arc::new(InvertedTokenizer),
+            Arc::new(MemorySink::new()),
+        );
+
+        let mut out = CollectSink::default();
+        let record = orch.run_turn(en, &mut out).await.unwrap();
+
+        // Under this tokenizer the compacted candidate is "more expensive", so
+        // the raw translation must be sent and recorded.
+        assert_eq!(backend.sent_prompts(), vec![raw_zh.to_string()]);
+        assert_eq!(record.chinese_prompt, raw_zh);
+        assert_eq!(orch.chinese_convo.messages[0].content, raw_zh);
+    }
+
+    #[tokio::test]
+    async fn assistant_history_is_raw_streamed_response() {
+        // The response contains compactable CJK-Latin spacing; replayed history
+        // must keep Claude's bytes untouched (record honesty + prompt caching).
+        let zh_resp = "用 Rust 写的。";
+        let translator = Arc::new(FakeTranslator::new());
+        translator.add_en_to_zh("hi", "你好");
+        translator.add_zh_to_en(zh_resp, "Written in Rust.");
+        let backend = Arc::new(FakeBackend::new());
+        backend.enqueue_simple(zh_resp, Usage::default());
+        let sink = Arc::new(MemorySink::new());
+        let mut orch = build(translator, backend, sink);
+
+        let mut out = CollectSink::default();
+        let record = orch.run_turn("hi", &mut out).await.unwrap();
+
+        assert_eq!(record.chinese_response, zh_resp);
+        assert_eq!(orch.chinese_convo.messages[1].content, zh_resp);
     }
 
     #[tokio::test]
