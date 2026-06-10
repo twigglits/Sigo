@@ -3,6 +3,7 @@
 
 pub mod benchmark;
 pub mod claude;
+pub mod compact;
 pub mod config;
 pub mod conversation;
 pub mod error;
@@ -21,6 +22,7 @@ pub use benchmark::{
 pub use claude::{
     ApiBackend, ClaudeBackend, ClaudeCodeBackend, FakeBackend, ResponseChunk, ScriptedItem,
 };
+pub use compact::compact_zh;
 pub use config::{
     apply_env_overlay, BenchmarkConfig, ClaudeCodeConfig, ClaudeConfig, PricingConfig, ReplConfig,
     SigoConfig, TranslatorConfig,
