@@ -22,7 +22,7 @@ pub struct OllamaTranslator {
 #[derive(Serialize)]
 struct ChatRequest<'a> {
     model: &'a str,
-    messages: Vec<ChatMessage<'a>>,
+    messages: Vec<ChatMessage>,
     stream: bool,
     options: &'a GenOptions,
     /// How long Ollama keeps the model resident after this call. Avoids a
@@ -30,10 +30,17 @@ struct ChatRequest<'a> {
     keep_alive: &'a str,
 }
 
+/// Wrap a source text in the translate-not-answer markers (see prompts.rs).
+fn wrap_source(text: &str) -> String {
+    format!("<source>\n{text}\n</source>")
+}
+
 #[derive(Serialize)]
-struct ChatMessage<'a> {
-    role: &'a str,
-    content: &'a str,
+struct ChatMessage {
+    role: &'static str,
+    /// Owned because the final user turn wraps the source text in markers and
+    /// few-shot user turns are wrapped the same way.
+    content: String,
 }
 
 /// Generation options sent to Ollama. Defaults are tuned for a translation layer:
@@ -104,26 +111,37 @@ impl OllamaTranslator {
         self
     }
 
-    /// Build the `/api/chat` request body for one translation. Extracted so the
-    /// generation options (determinism, context window, keep-alive) are unit-testable
-    /// without a live Ollama.
-    fn build_body<'a>(&'a self, text: &'a str, dir: Direction) -> ChatRequest<'a> {
-        let system = match dir {
-            Direction::EnToZh => self.en_to_zh_system.as_str(),
-            Direction::ZhToEn => self.zh_to_en_system.as_str(),
+    /// Build the `/api/chat` request body for one translation: system prompt,
+    /// translate-not-answer few-shot pairs, then the marker-wrapped source.
+    /// Extracted so the protocol shape and the generation options (determinism,
+    /// context window, keep-alive) are unit-testable without a live Ollama.
+    fn build_body<'a>(&'a self, text: &str, dir: Direction) -> ChatRequest<'a> {
+        let (system, few_shots) = match dir {
+            Direction::EnToZh => (self.en_to_zh_system.as_str(), prompts::EN_TO_ZH_FEW_SHOTS),
+            Direction::ZhToEn => (self.zh_to_en_system.as_str(), prompts::ZH_TO_EN_FEW_SHOTS),
         };
+        let mut messages = Vec::with_capacity(2 + 2 * few_shots.len());
+        messages.push(ChatMessage {
+            role: "system",
+            content: system.to_string(),
+        });
+        for (src, translation) in few_shots {
+            messages.push(ChatMessage {
+                role: "user",
+                content: wrap_source(src),
+            });
+            messages.push(ChatMessage {
+                role: "assistant",
+                content: (*translation).to_string(),
+            });
+        }
+        messages.push(ChatMessage {
+            role: "user",
+            content: wrap_source(text),
+        });
         ChatRequest {
             model: &self.model,
-            messages: vec![
-                ChatMessage {
-                    role: "system",
-                    content: system,
-                },
-                ChatMessage {
-                    role: "user",
-                    content: text,
-                },
-            ],
+            messages,
             stream: false,
             options: &self.options,
             keep_alive: &self.keep_alive,
@@ -173,6 +191,42 @@ mod tests {
     }
 
     #[test]
+    fn build_body_uses_source_protocol_with_few_shots() {
+        // Translate-not-answer protocol: the source text travels between
+        // <source> markers, preceded by few-shot pairs that demonstrate
+        // translating instruction-shaped text instead of executing it (a live
+        // qwen2.5:7b answered "Explain X" / "Write a limerick" prompts under
+        // the naked-text protocol, silently replacing the user's question).
+        let t = translator();
+        let body = t.build_body("Explain X.", Direction::EnToZh);
+        let shots = prompts::EN_TO_ZH_FEW_SHOTS;
+        assert_eq!(body.messages.len(), 2 + 2 * shots.len());
+        for (i, (src, out)) in shots.iter().enumerate() {
+            let user = &body.messages[1 + 2 * i];
+            let assistant = &body.messages[2 + 2 * i];
+            assert_eq!(user.role, "user");
+            assert!(user.content.contains("<source>"), "{}", user.content);
+            assert!(user.content.contains(src), "{}", user.content);
+            assert_eq!(assistant.role, "assistant");
+            assert_eq!(assistant.content, *out);
+        }
+        let last = body.messages.last().unwrap();
+        assert_eq!(last.role, "user");
+        assert_eq!(last.content, "<source>\nExplain X.\n</source>");
+
+        // Same protocol on the response side.
+        let body = t.build_body("你好。", Direction::ZhToEn);
+        assert_eq!(
+            body.messages.len(),
+            2 + 2 * prompts::ZH_TO_EN_FEW_SHOTS.len()
+        );
+        assert_eq!(
+            body.messages.last().unwrap().content,
+            "<source>\n你好。\n</source>"
+        );
+    }
+
+    #[test]
     fn build_body_selects_system_prompt_by_style() {
         // Default register is terse (the token-minimizing product default).
         let t = translator();
@@ -215,6 +269,32 @@ mod tests {
 #[cfg(all(test, feature = "live"))]
 mod live_tests {
     use super::*;
+
+    #[tokio::test]
+    async fn instruction_prompts_are_translated_not_executed() {
+        let t = OllamaTranslator::new(
+            "http://localhost:11434",
+            "qwen2.5:7b",
+            Duration::from_secs(120),
+        );
+        let zh = t
+            .translate(
+                "Explain how Rust's borrow checker prevents data races, in under 200 words. \
+                 Use one short code example.",
+                Direction::EnToZh,
+            )
+            .await
+            .unwrap();
+        assert!(zh.contains("200"), "constraint lost: {zh}");
+        assert!(
+            !zh.contains("```"),
+            "translator EXECUTED the task (emitted a code block): {zh}"
+        );
+        assert!(
+            zh.chars().count() < 80,
+            "translation suspiciously long — likely an answer, not a translation: {zh}"
+        );
+    }
 
     #[tokio::test]
     async fn terse_translation_preserves_numbers_and_identifiers() {
