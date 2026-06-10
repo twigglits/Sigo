@@ -71,7 +71,9 @@ Two-crate Cargo workspace:
 
 - `crates/sigo-core` — library: traits (`Translator`, `ClaudeBackend`, `Tokenizer`,
   `BenchmarkSink`), the per-turn orchestrator, the sentence-buffer streaming
-  transformer, and concrete adapters.
+  transformer, the ZH whitespace compactor (`compact.rs`), the code-masking
+  layer that keeps code out of the local model's hands (`translator/mask.rs`),
+  and concrete adapters.
 - `crates/sigo-cli` — binary: the `clap` CLI, the `rustyline` REPL, the one-shot
   `chat` command, config loading (files + `SIGO_*` env), and the `bench` / `doctor`
   subcommands.
@@ -178,17 +180,17 @@ sigo bench run --eval coding --corpus my_humaneval.jsonl  # custom HumanEval-for
 
 ## Token minimization — and what is honestly known
 
-Two prompt-side mechanisms minimize what Claude is billed for; both report into
-the bench artifacts so their effects stay attributable and falsifiable:
+Three prompt-side mechanisms minimize what Claude is billed for; all report
+into the bench artifacts so their effects stay attributable and falsifiable:
 
 - **Terse translation register (default).** Plain fluent translation does NOT
-  save tokens: on the `o200k_base` proxy a faithful fluent ZH rendering of a
-  realistic prompt measured **+10% vs the English original**. The default
+  save tokens — an English-optimized BPE penalizes CJK, so a faithful fluent
+  rendering costs *more* than the English original. The default
   `style = "terse"` instead asks the local translator for maximally concise
-  written Chinese that preserves every fact, constraint, number, name, and
-  negation. A live A/B against `qwen2.5:7b` measured **−22% to −51% vs the
-  English original** (proxy counts) on realistic prose prompts, and a wash on
-  very short ones. Set `style = "fluent"` to run the baseline register.
+  written Chinese (简练书面语) that preserves every fact, constraint, number,
+  name, and negation. Set `style = "fluent"` to run the baseline register
+  (kept so paired runs can attribute savings to the register rather than to
+  translation per se).
 - **Whitespace compactor with a never-worse guard.** The outbound ZH prompt is
   deterministically compacted (trailing whitespace, newline runs, interior space
   runs, CJK↔Latin boundary spaces — never inside code, never on lines without
@@ -197,25 +199,37 @@ the bench artifacts so their effects stay attributable and falsifiable:
   count is recorded per turn (`chinese_prompt_tokens_precompact_local`).
 - **Translate-not-answer protocol + structural code masking.** A live corpus
   sweep caught the local translator *answering* instruction-shaped prompts
-  instead of translating them (and, separately, solving or dropping code it was
-  supposed to pass through). The translator now sends `<source>`-wrapped text
-  with few-shot demonstrations, and code spans never reach the model at all —
-  they are masked behind sentinels in Rust and reinstated byte-for-byte. On the
-  bundled 40-prompt sweep this took the pipeline from **+36% vs English (with
-  silent prompt corruption) to +4.8% vs English with zero detected constraint
-  losses** (proxy counts; code prompts at +0.3% ≈ parity).
+  instead of translating them ("Explain X" reached Claude as the 7B's
+  explanation of X) and, separately, solving or dropping code it was supposed
+  to pass through. The translator now sends `<source>`-wrapped text with
+  few-shot demonstrations, and code spans never reach the model at all — they
+  are masked behind sentinels in Rust and reinstated byte-for-byte. A dropped
+  sentinel is repaired by appending the code; a duplicated one fails the turn
+  loudly. Known residual: trivial arithmetic bait ("What is 2+2?") can still
+  get answered.
+
+**Measured results** (`o200k_base` proxy, live `qwen2.5:7b`, the bundled
+30-chat + 10-HumanEval corpora through the exact production path —
+reproduce with `cargo run -p sigo-core --example measure_pipeline`):
+
+| Pipeline | vs direct English |
+|---|---|
+| Original (fluent register, unprotected protocol) | **+36%**, with silent prompt corruption |
+| Shipped (terse + protocol + masking + compactor) | **+4.8%** overall · +9.7% chat · **+0.3% code (parity)** · zero detected constraint losses |
+| Hand-picked verbose prose prompts (A/B) | **−22% to −51%** |
+
+The pattern: terse ZH wins on verbose, redundancy-rich prose, ties on
+code-dominant prompts, and still loses slightly on already-terse technical
+English.
 
 What may NOT be claimed from this: all numbers above are `o200k_base` **proxy**
-counts, not Claude's non-public tokenizer; on the bundled corpora (already-terse
-technical English) direct English remains slightly cheaper than the ZH pipeline
-under the proxy — the terse-ZH wins appear on verbose, redundancy-rich prose;
-the only live paired bench to date (N=2, fluent register) found **EN cheaper on
-every layer**, and the terse pipeline has not yet been live-benched; output
-tokens dominate cost 3–5× and are not controlled by prompt-side changes; and
-terse-vs-verbatim conflates compression with language — attributing the split
-needs a terse-English control arm, which does not exist yet. The verdict
-instrument remains `sigo bench run --eval coding` (cost per passing task,
-paired, CIs).
+counts, not Claude's non-public tokenizer; the only live paired bench to date
+(N=2, fluent register) found **EN cheaper on every layer**, and the terse
+pipeline has not yet been live-benched; output tokens dominate cost 3–5× and
+are not controlled by prompt-side changes; and terse-vs-verbatim conflates
+compression with language — attributing the split needs a terse-English control
+arm, which does not exist yet. The verdict instrument remains
+`sigo bench run --eval coding` (cost per passing task, paired, CIs).
 
 ## Benchmark methodology
 
@@ -248,7 +262,9 @@ The JSONL log is rolling and append-only at
 `control_mode=full` and writes a per-run report:
 
 - `$XDG_DATA_HOME/sigo/runs/<run-id>/report.md` — headline ZH vs EN
-  comparison and per-category breakdown.
+  comparison and per-category breakdown. The header records the translator
+  style and the compactor's aggregate token savings, so runs with different
+  registers are never conflated.
 - `report.csv` next to it — one row per prompt for notebook analysis.
 - `errors.jsonl` — only created if some prompts failed.
 
@@ -289,8 +305,12 @@ ZH win-rate:
 **Correctness**: pass-rate per arm with Wilson 95% confidence intervals.
 **Cost per passing task**: mean marginal cost ÷ pass-rate (∞ if no tasks pass).
 
-**Round-trip fidelity**: a local Ollama judge scores EN→ZH→EN closeness on a
-0–10 scale. This is a diagnostic for translation quality, not a performance metric.
+**Round-trip fidelity**: a local Ollama judge back-translates the ZH prompt and
+scores **constraint recall** 0–10 — whether every fact, constraint, number,
+name, negation, and instruction survived — explicitly ignoring brevity, tone,
+and phrasing (so the terse register isn't punished for dropping politeness).
+Diagnostic only, never a gate: the same local model usually does both
+translation directions, so correlated errors can cancel and inflate scores.
 
 **Known limitations and safety notes:**
 
@@ -316,10 +336,14 @@ cargo test --workspace
 
 The workspace carries a broad unit + integration suite covering the
 conversation types, the `o200k_base` tokenizer proxy, the sentence-buffer
-state machine, the Anthropic SSE event parser, the Claude Code NDJSON parser,
-the orchestrator pipeline (happy path + full control mode + stream-without-Done),
-the JSONL sink roundtrip, and the bench summary aggregation (which reports raw
-counts without inventing an estimate).
+state machine, the whitespace compactor (golden adversarial corpus: unfenced
+indented Python, markdown markers, quoted CJK literals, URL/path boundaries,
+idempotency, tokens-never-increase), the code-masking roundtrip, the
+translate-not-answer request shape, the Anthropic SSE event parser, the Claude
+Code NDJSON parser, the orchestrator pipeline (happy path + full control mode
++ compaction guard + raw-assistant-history invariant), the JSONL sink
+roundtrip, and the bench summary aggregation (which reports raw counts without
+inventing an estimate).
 
 Live tests against real Ollama + real Anthropic API are gated behind
 `--features live` and are not run by default:
