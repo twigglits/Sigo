@@ -3,6 +3,9 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  # The Version workflow chains into this one by dispatching it on the new tag
+  # (a tag pushed with GITHUB_TOKEN cannot trigger `on: push: tags` itself).
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -15,6 +18,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+      - name: Verify the ref is a v* tag that matches the crate version
+        run: |
+          case "$GITHUB_REF" in
+            refs/tags/v*) ;;
+            *) echo "Release must run on a v* tag ref, got $GITHUB_REF (dispatch this workflow on a tag)"; exit 1 ;;
+          esac
+          v=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n1)
+          if [ "v$v" != "$GITHUB_REF_NAME" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match Cargo.toml version $v — releases must ship the version they claim"
+            exit 1
+          fi
       - name: Create GitHub Release for the tag
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -54,6 +68,8 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
   docker:
+    # Behind the same tag/version guard as the binaries.
+    needs: create-release
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6

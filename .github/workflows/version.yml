@@ -1,0 +1,74 @@
+name: Version
+
+# Cut a release: computes the next SemVer increment from conventional commits
+# (or takes an explicit override), bumps every workspace version in lockstep
+# (Cargo.toml, the sigo-cli -> sigo-core dependency pin, Cargo.lock), commits,
+# tags, and chains into the Release workflow for that tag.
+#
+# Dispatch-chaining instead of relying on the tag push: tags pushed with the
+# default GITHUB_TOKEN do not trigger `on: push: tags` workflows (GitHub's
+# recursion guard), but workflow_dispatch is exempt. Manually pushed tags
+# still trigger Release directly, exactly as before.
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Increment (auto = derive from conventional commits since the last tag)"
+        type: choice
+        options: [auto, patch, minor, major]
+        default: auto
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  bump-tag-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0 # next-version.sh needs full history and tags
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-edit
+      - name: Compute next version
+        id: next
+        env:
+          BUMP: ${{ inputs.bump }}
+        run: echo "version=$(scripts/next-version.sh "$BUMP")" >> "$GITHUB_OUTPUT"
+      - name: Bump workspace versions in lockstep
+        env:
+          NEXT: ${{ steps.next.outputs.version }}
+        run: |
+          # set-version --workspace updates every member AND the version pins
+          # that members declare on each other (sigo-cli's pin on sigo-core).
+          cargo set-version --workspace "$NEXT"
+          # Sync Cargo.lock to the new member versions.
+          cargo update --workspace
+      - name: Verify the bump landed everywhere
+        env:
+          NEXT: ${{ steps.next.outputs.version }}
+        run: |
+          grep -q "^version = \"$NEXT\"" Cargo.toml
+          # The path-dependency pin must track the workspace version, or the
+          # next build breaks (a ^0.x requirement excludes 0.(x+1)).
+          grep -q "version = \"$NEXT\"" crates/sigo-cli/Cargo.toml
+          grep -q "name = \"sigo-core\"" Cargo.lock
+          cargo metadata --format-version 1 --no-deps >/dev/null
+      - name: Commit, tag, push
+        env:
+          NEXT: ${{ steps.next.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit -am "chore(release): v$NEXT"
+          git tag "v$NEXT"
+          git push origin "HEAD:${GITHUB_REF_NAME}" "v$NEXT"
+      - name: Start the Release pipeline for the new tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NEXT: ${{ steps.next.outputs.version }}
+        run: gh workflow run release.yml --ref "v$NEXT"

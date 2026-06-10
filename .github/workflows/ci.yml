@@ -25,8 +25,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - name: ShellCheck install.sh
-        run: shellcheck install.sh
+      - name: ShellCheck shell scripts
+        run: shellcheck install.sh scripts/*.sh
 
   # Deterministic supply-chain gate: banned/duplicate crates, license policy, and
   # source registries. Security advisories are intentionally left to the separate,
