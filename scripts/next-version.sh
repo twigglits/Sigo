@@ -47,12 +47,18 @@ fi
 IFS=. read -r major minor patch <<<"$cargo_version"
 
 if [ "$bump" = "auto" ]; then
-  if git log --format=%s "$range" | grep -Eq '^[a-z]+(\([^)]*\))?!:' ||
-     git log --format=%B "$range" | grep -Eq '^BREAKING[ -]CHANGE:'; then
+  # Capture once and grep herestrings rather than piping `git log | grep -q`:
+  # under pipefail, grep -q exiting at the first match can SIGPIPE git (exit
+  # 141), making a MATCHED condition read as false. This is timing-dependent
+  # and bit only on CI runners, never locally.
+  subjects=$(git log --format=%s "$range")
+  bodies=$(git log --format=%B "$range")
+  if grep -Eq '^[a-z]+(\([^)]*\))?!:' <<<"$subjects" ||
+     grep -Eq '^BREAKING[ -]CHANGE:' <<<"$bodies"; then
     bump="major"
-  elif git log --format=%s "$range" | grep -Eq '^feat(\([^)]*\))?:'; then
+  elif grep -Eq '^feat(\([^)]*\))?:' <<<"$subjects"; then
     bump="minor"
-  elif git log --format=%s "$range" | grep -Eq '^(fix|perf|revert)(\([^)]*\))?:'; then
+  elif grep -Eq '^(fix|perf|revert)(\([^)]*\))?:' <<<"$subjects"; then
     bump="patch"
   else
     echo "no release needed: none of the $count commit(s) since ${last_tag:-the beginning} are feat/fix/perf/breaking" >&2
