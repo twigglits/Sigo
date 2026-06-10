@@ -51,6 +51,10 @@ pub const EN_TO_ZH_FEW_SHOTS: &[(&str, &str)] = &[
         "查询 ⟦C0⟧ 在200万行上很慢。为什么？",
     ),
     (
+        "Refactor this function to avoid repetition:\n⟦C0⟧",
+        "重构此函数以避免重复：\n⟦C0⟧",
+    ),
+    (
         "Summarize the causes of the 1929 stock market crash in three bullet points, under 50 words.",
         "用三个要点、50词以内概括1929年股市崩盘的原因。",
     ),
@@ -171,7 +175,7 @@ mod tests {
         // Few-shot pairs demonstrate the protocol on the observed failure
         // classes; their user sides are wrapped by build_body, so here they
         // must be the bare source texts.
-        assert_eq!(EN_TO_ZH_FEW_SHOTS.len(), 3);
+        assert_eq!(EN_TO_ZH_FEW_SHOTS.len(), 4);
         assert_eq!(ZH_TO_EN_FEW_SHOTS.len(), 3);
         for (src, out) in EN_TO_ZH_FEW_SHOTS.iter().chain(ZH_TO_EN_FEW_SHOTS) {
             assert!(!src.contains("<source>"), "few-shot source pre-wrapped");

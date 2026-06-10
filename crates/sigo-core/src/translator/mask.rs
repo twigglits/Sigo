@@ -54,18 +54,28 @@ pub(crate) fn mask_protected(input: &str) -> Option<Masked> {
     Some(Masked { text, spans })
 }
 
-/// Reinstate the original spans into the model's output. Each placeholder must
-/// appear exactly once; anything else is a translator failure, not a shrug.
+/// Reinstate the original spans into the model's output. A placeholder the
+/// model dropped is repaired by appending its span at the end — information
+/// preservation beats word order, and a 7B drops trailing-block placeholders
+/// often enough that hard-failing those turns is worse than the repair. A
+/// DUPLICATED placeholder stays a hard error: which occurrence is real is
+/// ambiguous, and guessing would ship corrupted code.
 pub(crate) fn restore_protected(output: &str, spans: &[String]) -> Result<String> {
     let mut restored = output.to_string();
     for (i, span) in spans.iter().enumerate() {
         let ph = placeholder(i);
-        if restored.matches(&ph).count() != 1 {
-            return Err(SigoError::Translator(format!(
-                "translation lost or duplicated code placeholder {ph}; refusing to ship a prompt with missing code"
-            )));
+        match restored.matches(&ph).count() {
+            1 => restored = restored.replacen(&ph, span, 1),
+            0 => {
+                restored.push('\n');
+                restored.push_str(span);
+            }
+            _ => {
+                return Err(SigoError::Translator(format!(
+                    "translation duplicated code placeholder {ph}; refusing to guess which occurrence is real"
+                )))
+            }
         }
-        restored = restored.replacen(&ph, span, 1);
     }
     Ok(restored)
 }
@@ -104,12 +114,20 @@ mod tests {
     }
 
     #[test]
-    fn lost_placeholder_is_an_error_not_a_shrug() {
+    fn lost_placeholder_is_repaired_by_appending_the_code() {
+        // Information preservation beats word order: if the model drops a
+        // placeholder, the hidden code is appended rather than failing the
+        // turn (a 7B dropped trailing-block placeholders ~5% of the time).
         let spans = vec!["`SELECT 1`".to_string()];
-        let err = restore_protected("查询返回0。首先检查什么？", &spans);
-        assert!(err.is_err(), "missing placeholder must fail loudly");
-        let dup = restore_protected("⟦C0⟧ 和 ⟦C0⟧", &spans);
-        assert!(dup.is_err(), "duplicated placeholder must fail loudly");
+        let repaired = restore_protected("查询返回0。首先检查什么？", &spans).unwrap();
+        assert_eq!(repaired, "查询返回0。首先检查什么？\n`SELECT 1`");
+    }
+
+    #[test]
+    fn duplicated_placeholder_is_an_error() {
+        // Duplication is ambiguous (which occurrence is real?) — fail loudly.
+        let spans = vec!["`SELECT 1`".to_string()];
+        assert!(restore_protected("⟦C0⟧ 和 ⟦C0⟧", &spans).is_err());
     }
 
     #[test]
