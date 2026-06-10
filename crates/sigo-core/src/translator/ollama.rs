@@ -152,7 +152,12 @@ impl OllamaTranslator {
 #[async_trait]
 impl Translator for OllamaTranslator {
     async fn translate(&self, text: &str, dir: Direction) -> Result<String> {
-        let body = self.build_body(text, dir);
+        // Structural code protection: fenced/inline code is replaced by
+        // sentinels so the model cannot answer, alter, or drop it (observed
+        // live in all three forms), then reinstated byte-for-byte.
+        let masked = super::mask::mask_protected(text);
+        let send_text = masked.as_ref().map_or(text, |m| m.text.as_str());
+        let body = self.build_body(send_text, dir);
         let url = format!("{}/api/chat", self.endpoint.trim_end_matches('/'));
         let resp = self
             .client
@@ -174,7 +179,10 @@ impl Translator for OllamaTranslator {
             )));
         }
         let parsed: ChatResponse = resp.json().await?;
-        Ok(parsed.message.content)
+        match masked {
+            Some(m) => super::mask::restore_protected(&parsed.message.content, &m.spans),
+            None => Ok(parsed.message.content),
+        }
     }
 }
 
@@ -269,6 +277,28 @@ mod tests {
 #[cfg(all(test, feature = "live"))]
 mod live_tests {
     use super::*;
+
+    #[tokio::test]
+    async fn code_blocks_survive_translation_byte_identical() {
+        // Without masking, qwen2.5:7b SOLVED this refactor inside the fenced
+        // block instead of translating the instruction around it.
+        let t = OllamaTranslator::new(
+            "http://localhost:11434",
+            "qwen2.5:7b",
+            Duration::from_secs(120),
+        );
+        let code = "```python\nresult = []\nfor x in items:\n    if x.active:\n        result.append(x.name.upper())\n```";
+        let prompt = format!("Rewrite this loop to use a list comprehension:\n{code}");
+        let zh = t.translate(&prompt, Direction::EnToZh).await.unwrap();
+        assert!(
+            zh.contains(code),
+            "fenced block altered or dropped in translation: {zh}"
+        );
+        assert!(
+            !zh.contains("[x.name.upper() for x in items"),
+            "translator solved the task instead of translating it: {zh}"
+        );
+    }
 
     #[tokio::test]
     async fn instruction_prompts_are_translated_not_executed() {

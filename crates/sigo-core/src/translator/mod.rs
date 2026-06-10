@@ -3,6 +3,7 @@ use crate::error::Result;
 use async_trait::async_trait;
 
 pub mod fakes;
+pub(crate) mod mask;
 pub mod ollama;
 pub mod prompts;
 

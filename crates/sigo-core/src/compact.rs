@@ -70,15 +70,16 @@ fn has_cjk(s: &str) -> bool {
     s.chars().any(is_cjk_ideograph)
 }
 
-enum Piece<'a> {
+pub(crate) enum Piece<'a> {
     Protected(&'a str),
     Text(&'a str),
 }
 
 /// Split into protected spans (fenced blocks first, then inline code within the
 /// remaining text) and editable text runs. Concatenating the pieces in order
-/// reproduces the input exactly.
-fn segment(input: &str) -> Vec<Piece<'_>> {
+/// reproduces the input exactly. Shared with `translator::mask`, which uses the
+/// same protected-span definition to hide code from the local model entirely.
+pub(crate) fn segment(input: &str) -> Vec<Piece<'_>> {
     let mut pieces = Vec::new();
     for block in split_fences(input) {
         match block {
