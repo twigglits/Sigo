@@ -44,7 +44,7 @@ fn layered_report_reflects_en_advantage() {
     );
     assert!(s.zh_cost_per_pass > s.en_cost_per_pass);
 
-    let md = build_eval_markdown("rid", "claude-code", "claude-sonnet-4-6", &s);
+    let md = build_eval_markdown("rid", "claude-code", "claude-sonnet-4-6", "terse", &s);
     assert!(md.contains("ZH win-rate"));
     assert!(md.contains("$ / passing task"));
     let csv = build_eval_csv(&tasks, &PricingConfig::default());

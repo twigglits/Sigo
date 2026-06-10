@@ -178,6 +178,7 @@ pub async fn run_with_builders(
         backend_kind,
         cfg.claude.model.clone(),
         cfg.translator.model.clone(),
+        cfg.translator.style.as_str().to_string(),
         corpus_source,
         total,
         n_failed,
@@ -484,7 +485,13 @@ async fn run_coding_eval(
         anyhow::bail!("no tasks produced a usable record");
     }
     let summary = summarize_eval(&evals, &cfg.pricing, cfg.benchmark.bootstrap_seed);
-    let md = build_eval_markdown(&run_id, &cfg.claude.backend, &cfg.claude.model, &summary);
+    let md = build_eval_markdown(
+        &run_id,
+        &cfg.claude.backend,
+        &cfg.claude.model,
+        cfg.translator.style.as_str(),
+        &summary,
+    );
     let csv = build_eval_csv(&evals, &cfg.pricing);
     let md_path = out_dir.join("eval_report.md");
     std::fs::write(&md_path, md).with_context(|| format!("write {}", md_path.display()))?;

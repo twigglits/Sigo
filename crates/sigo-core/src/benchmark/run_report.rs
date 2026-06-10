@@ -15,6 +15,9 @@ pub struct RunSummary {
     pub backend: BackendKind,
     pub claude_model: String,
     pub translator_model: String,
+    /// EN→ZH register used for this run ("terse" | "fluent") — required to
+    /// attribute savings to the register vs translation per se across runs.
+    pub translator_style: String,
     pub corpus_source: String,
     pub n_attempted: usize,
     pub n_succeeded: usize,
@@ -32,6 +35,10 @@ pub struct RunSummary {
     pub mean_en_output_reported: f64,
     pub mean_zh_prompt_local: f64,
     pub mean_en_prompt_local: f64,
+    /// Sum over completed rows of (pre-compaction − sent) local proxy tokens:
+    /// the whitespace compactor's own contribution, separable from the
+    /// translation register's. Old JSONL rows (no precompact field) add 0.
+    pub compaction_saved_proxy_tokens: u64,
     pub mean_turn_total_ms: f64,
 
     pub per_category: BTreeMap<String, CategoryStats>,
@@ -91,6 +98,7 @@ pub fn summarize_run(
     backend: BackendKind,
     claude_model: String,
     translator_model: String,
+    translator_style: String,
     corpus_source: String,
     n_attempted: usize,
     n_failed: usize,
@@ -98,6 +106,17 @@ pub fn summarize_run(
 ) -> RunSummary {
     let n_succeeded = rows.iter().filter(|(r, _)| !r.incomplete).count();
     let n_incomplete = rows.iter().filter(|(r, _)| r.incomplete).count();
+
+    // Compactor contribution over completed rows. saturating_sub also zeroes
+    // legacy rows that predate the precompact field (deserialized as 0).
+    let compaction_saved_proxy_tokens: u64 = rows
+        .iter()
+        .filter(|(r, _)| !r.incomplete)
+        .map(|(r, _)| {
+            r.chinese_prompt_tokens_precompact_local
+                .saturating_sub(r.chinese_prompt_tokens_local) as u64
+        })
+        .sum();
 
     // Reported-token means are computed over PAIRED rows only (both arms reported),
     // so incomplete/unpaired turns can't drag the EN-vs-ZH comparison via unwrap_or(0).
@@ -182,12 +201,14 @@ pub fn summarize_run(
         backend,
         claude_model,
         translator_model,
+        translator_style,
         corpus_source,
         n_attempted,
         n_succeeded,
         n_incomplete,
         n_failed,
         n_paired,
+        compaction_saved_proxy_tokens,
         mean_zh_input_reported: mean(&zh_input),
         mean_en_input_reported: mean(&en_input),
         mean_zh_total_input: mean(&zh_total),
@@ -218,6 +239,12 @@ pub fn build_markdown(report: &RunReport) -> String {
         out,
         "- backend: `{:?}`  · claude_model: `{}`  · translator_model: `{}`",
         s.backend, s.claude_model, s.translator_model
+    );
+    let _ = writeln!(out, "- translator_style: `{}`", s.translator_style);
+    let _ = writeln!(
+        out,
+        "- ZH prompt compaction saved {} proxy tokens across completed turns (pre-compaction vs sent; o200k proxy, separable from the register effect)",
+        s.compaction_saved_proxy_tokens
     );
     let _ = writeln!(out, "- corpus: `{}`", s.corpus_source);
     let _ = writeln!(
@@ -501,6 +528,7 @@ mod tests {
             BackendKind::Api,
             "m".into(),
             "t".into(),
+            "terse".into(),
             "src".into(),
             4,
             0,
@@ -545,6 +573,7 @@ mod tests {
             BackendKind::Api,
             "claude-sonnet-4-6".into(),
             "qwen3".into(),
+            "terse".into(),
             "bundled".into(),
             3,
             0,
@@ -560,6 +589,49 @@ mod tests {
         assert_eq!(s.per_category["coding"].n, 2);
         assert_eq!(s.per_category["prose"].n, 1);
         assert_eq!(s.wall_ms, 90_000);
+    }
+
+    #[test]
+    fn summary_carries_style_and_compaction_savings() {
+        let started = Utc.with_ymd_and_hms(2026, 5, 26, 12, 0, 0).unwrap();
+        let finished = Utc.with_ymd_and_hms(2026, 5, 26, 12, 1, 30).unwrap();
+        let mut r1 = rec("", 10, 8, 12, 200, 0, 0, 18, 250, 0, 0, false);
+        r1.chinese_prompt_tokens_precompact_local = r1.chinese_prompt_tokens_local + 5;
+        let mut r2 = rec("", 14, 12, 16, 240, 0, 0, 22, 280, 0, 0, false);
+        r2.chinese_prompt_tokens_precompact_local = r2.chinese_prompt_tokens_local + 2;
+        // Incomplete rows are excluded from the aggregate.
+        let mut r3 = rec("", 9, 9, 0, 0, 0, 0, 0, 0, 0, 0, true);
+        r3.chinese_prompt_tokens_precompact_local = 999;
+        let rows = vec![
+            (r1, "coding".to_string()),
+            (r2, "coding".to_string()),
+            (r3, "coding".to_string()),
+        ];
+        let summary = summarize_run(
+            "rid".into(),
+            started,
+            finished,
+            BackendKind::Api,
+            "m".into(),
+            "t".into(),
+            "terse".into(),
+            "src".into(),
+            3,
+            0,
+            &rows,
+        );
+        assert_eq!(summary.translator_style, "terse");
+        assert_eq!(summary.compaction_saved_proxy_tokens, 7);
+
+        let md = build_markdown(&RunReport { summary, rows });
+        assert!(
+            md.contains("translator_style: `terse`"),
+            "style missing from markdown header:\n{md}"
+        );
+        assert!(
+            md.contains("compaction saved 7 proxy tokens"),
+            "compaction delta missing from markdown:\n{md}"
+        );
     }
 
     #[test]
@@ -583,6 +655,7 @@ mod tests {
             BackendKind::ClaudeCode,
             "claude-sonnet-4-6".into(),
             "qwen3".into(),
+            "terse".into(),
             "bundled".into(),
             2,
             0,
@@ -614,6 +687,7 @@ mod tests {
             BackendKind::Api,
             "m".into(),
             "t".into(),
+            "terse".into(),
             "src".into(),
             2,
             0,
@@ -649,6 +723,7 @@ mod tests {
             BackendKind::Api,
             "m".into(),
             "t".into(),
+            "terse".into(),
             "src".into(),
             2,
             0,

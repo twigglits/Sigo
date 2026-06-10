@@ -87,6 +87,7 @@ after CLI flags) — convenient for containers:
 |----------------------------|--------------------------|
 | `SIGO_TRANSLATOR_ENDPOINT` | `translator.endpoint`    |
 | `SIGO_TRANSLATOR_MODEL`    | `translator.model`       |
+| `SIGO_TRANSLATOR_STYLE`    | `translator.style`       |
 | `SIGO_CLAUDE_BACKEND`      | `claude.backend`         |
 | `SIGO_CLAUDE_MODEL`        | `claude.model`           |
 | `SIGO_CLAUDE_MAX_TOKENS`   | `claude.max_tokens`      |
@@ -103,6 +104,7 @@ provider = "ollama"
 endpoint = "http://localhost:11434"
 model = "qwen2.5:7b"
 timeout_seconds = 60
+style = "terse"                    # terse (token-minimizing, default) | fluent (baseline)
 
 [claude]
 backend = "api"                    # or "claude-code"
@@ -173,6 +175,35 @@ sigo bench run --eval coding --corpus my_humaneval.jsonl  # custom HumanEval-for
 - `/model translator <name>` / `/model claude <name>` — hot-swap models
 - `/backend <api|claude-code>` — hot-swap backend
 - `/bench` — quick summary of the current session
+
+## Token minimization — and what is honestly known
+
+Two prompt-side mechanisms minimize what Claude is billed for; both report into
+the bench artifacts so their effects stay attributable and falsifiable:
+
+- **Terse translation register (default).** Plain fluent translation does NOT
+  save tokens: on the `o200k_base` proxy a faithful fluent ZH rendering of a
+  realistic prompt measured **+10% vs the English original**. The default
+  `style = "terse"` instead asks the local translator for maximally concise
+  written Chinese that preserves every fact, constraint, number, name, and
+  negation. A live A/B against `qwen2.5:7b` measured **−22% to −51% vs the
+  English original** (proxy counts) on realistic prose prompts, and a wash on
+  very short ones. Set `style = "fluent"` to run the baseline register.
+- **Whitespace compactor with a never-worse guard.** The outbound ZH prompt is
+  deterministically compacted (trailing whitespace, newline runs, interior space
+  runs, CJK↔Latin boundary spaces — never inside code, never on lines without
+  CJK, never URLs/paths). Each turn both forms are counted with the proxy and
+  the cheaper one is sent, so the step cannot lose tokens. The pre-compaction
+  count is recorded per turn (`chinese_prompt_tokens_precompact_local`).
+
+What may NOT be claimed from this: all numbers above are `o200k_base` **proxy**
+counts, not Claude's non-public tokenizer; the only live paired bench to date
+(N=2, fluent register) found **EN cheaper on every layer**, and the terse
+pipeline has not yet been live-benched; output tokens dominate cost 3–5× and
+are not controlled by prompt-side changes; and terse-vs-verbatim conflates
+compression with language — attributing the split needs a terse-English control
+arm, which does not exist yet. The verdict instrument remains
+`sigo bench run --eval coding` (cost per passing task, paired, CIs).
 
 ## Benchmark methodology
 

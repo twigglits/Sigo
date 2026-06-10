@@ -44,6 +44,16 @@ pub enum TranslatorStyle {
     Fluent,
 }
 
+impl TranslatorStyle {
+    /// Canonical lowercase name, matching the TOML/env spelling.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Terse => "terse",
+            Self::Fluent => "fluent",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClaudeConfig {
     #[serde(default = "default_claude_backend")]

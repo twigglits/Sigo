@@ -234,13 +234,14 @@ pub fn build_eval_markdown(
     run_id: &str,
     backend: &str,
     claude_model: &str,
+    translator_style: &str,
     s: &EvalSummary,
 ) -> String {
     let mut o = String::new();
     let _ = writeln!(o, "# Sigo coding-eval — `{run_id}`\n");
     let _ = writeln!(
         o,
-        "- backend: `{backend}`  ·  claude_model: `{claude_model}`  ·  N = {}",
+        "- backend: `{backend}`  ·  claude_model: `{claude_model}`  ·  translator_style: `{translator_style}`  ·  N = {}",
         s.n
     );
     let _ = writeln!(
@@ -360,6 +361,10 @@ pub fn build_eval_markdown(
         o,
         "- pass@1 only (`--samples 1`); retries / pass@k are not measured."
     );
+    let _ = writeln!(
+        o,
+        "- Quality parity is NOT claimable when the pass-rate CI width exceeds the effect of interest (~5pp from prior literature); the Wilson CIs above are the binding bound at this N."
+    );
     o
 }
 
@@ -463,9 +468,25 @@ mod tests {
     }
 
     #[test]
+    fn eval_markdown_carries_style_and_power_caveat() {
+        let s = summarize_eval(&sample(), &PricingConfig::default(), 7);
+        let md = build_eval_markdown("rid", "claude-code", "claude-sonnet-4-6", "terse", &s);
+        assert!(
+            md.contains("translator_style: `terse`"),
+            "style missing from eval header:\n{md}"
+        );
+        // Statistical-power guardrail: quality parity may never be claimed when
+        // the pass-rate CI is wider than the effect of interest.
+        assert!(
+            md.contains("pass-rate CI width"),
+            "power caveat missing:\n{md}"
+        );
+    }
+
+    #[test]
     fn markdown_and_csv_render() {
         let s = summarize_eval(&sample(), &PricingConfig::default(), 7);
-        let md = build_eval_markdown("rid", "claude-code", "claude-sonnet-4-6", &s);
+        let md = build_eval_markdown("rid", "claude-code", "claude-sonnet-4-6", "terse", &s);
         assert!(md.contains("Headline"));
         assert!(md.contains("$ / passing task"));
         assert!(md.contains("cost-per-passing-task ratio"));
