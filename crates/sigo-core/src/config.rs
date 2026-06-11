@@ -108,6 +108,11 @@ pub struct ClaudeCodeConfig {
     /// Extra CLI arguments passed on every invocation.
     #[serde(default)]
     pub extra_args: Vec<String>,
+    /// Forward Claude Code's AskUserQuestion (clarification questions with
+    /// multiple-choice options) to an interactive picker in the REPL.
+    /// Off, questions are auto-denied exactly as in plain headless mode.
+    #[serde(default = "default_true")]
+    pub interactive: bool,
 }
 
 /// Benchmark logging and control-arm configuration.
@@ -184,6 +189,7 @@ impl Default for ClaudeCodeConfig {
         Self {
             binary: default_claude_code_binary(),
             extra_args: vec![],
+            interactive: true,
         }
     }
 }
@@ -233,6 +239,10 @@ fn default_claude_model() -> String {
 fn default_claude_max_tokens() -> u32 {
     4096
 }
+fn default_true() -> bool {
+    true
+}
+
 fn default_claude_code_binary() -> String {
     "claude".into()
 }
@@ -353,6 +363,17 @@ pub fn apply_env_overlay(cfg: &mut SigoConfig, get: impl Fn(&str) -> Option<Stri
             SigoError::Config(format!("SIGO_CLAUDE_TOP_P must be a float, got `{v}`"))
         })?);
     }
+    if let Some(v) = get("SIGO_CLAUDE_CODE_INTERACTIVE") {
+        cfg.claude.claude_code.interactive = match v.as_str() {
+            "true" | "1" => true,
+            "false" | "0" => false,
+            _ => {
+                return Err(SigoError::Config(format!(
+                    "SIGO_CLAUDE_CODE_INTERACTIVE must be true|false|1|0, got `{v}`"
+                )))
+            }
+        };
+    }
     Ok(())
 }
 
@@ -446,6 +467,44 @@ mod tests {
         assert!(
             toml::from_str::<SigoConfig>("[translator]\nstyle = \"verbose\"").is_err(),
             "unknown style must be rejected at parse time"
+        );
+    }
+
+    #[test]
+    fn claude_code_interactive_defaults_true_and_overrides() {
+        // default on: the REPL question picker should just work
+        let c = SigoConfig::default();
+        assert!(c.claude.claude_code.interactive);
+        // absent from TOML → still true
+        let c: SigoConfig = toml::from_str("[claude.claude_code]\nbinary = \"claude\"").unwrap();
+        assert!(c.claude.claude_code.interactive);
+        // explicit file opt-out
+        let c: SigoConfig = toml::from_str("[claude.claude_code]\ninteractive = false").unwrap();
+        assert!(!c.claude.claude_code.interactive);
+
+        // env overlay: false/true accepted, garbage rejected
+        let mut cfg = SigoConfig::default();
+        apply_env_overlay(&mut cfg, |k| {
+            (k == "SIGO_CLAUDE_CODE_INTERACTIVE").then(|| "false".to_string())
+        })
+        .unwrap();
+        assert!(!cfg.claude.claude_code.interactive);
+
+        let mut cfg = SigoConfig::default();
+        cfg.claude.claude_code.interactive = false;
+        apply_env_overlay(&mut cfg, |k| {
+            (k == "SIGO_CLAUDE_CODE_INTERACTIVE").then(|| "true".to_string())
+        })
+        .unwrap();
+        assert!(cfg.claude.claude_code.interactive);
+
+        let mut cfg = SigoConfig::default();
+        let res = apply_env_overlay(&mut cfg, |k| {
+            (k == "SIGO_CLAUDE_CODE_INTERACTIVE").then(|| "yes please".to_string())
+        });
+        assert!(
+            res.is_err(),
+            "garbage SIGO_CLAUDE_CODE_INTERACTIVE must error"
         );
     }
 
