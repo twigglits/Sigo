@@ -4,9 +4,11 @@ use std::process::Stdio;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 use tokio::process::Command;
-use tokio::sync::Mutex as AsyncMutex;
+use tokio::sync::{mpsc, Mutex as AsyncMutex};
 use tokio_stream::wrappers::ReceiverStream;
 
+use super::interactive::{self, InteractiveProc};
+use super::question::{build_user_turn_line, QuestionRequest};
 use super::{ClaudeBackend, ResponseChunk};
 use crate::conversation::{Conversation, Usage};
 use crate::error::{Result, SigoError};
@@ -18,16 +20,29 @@ use crate::error::{Result, SigoError};
 /// (the session ID is captured from the `system` event and passed via `--resume`
 /// on subsequent turns).
 ///
+/// # Interactive mode
+///
+/// When a question channel is attached ([`with_question_channel`](Self::with_question_channel)
+/// / [`attach_question_channel`](Self::attach_question_channel)), turns instead run on one
+/// long-lived stream-json process and Claude Code's `AskUserQuestion` tool —
+/// clarification questions with multiple-choice options — is forwarded to the
+/// channel and answered mid-turn with the user's selections. Without a channel
+/// the behavior is exactly the historic per-turn mode (questions auto-denied
+/// by the CLI), which keeps `chat`, `bench run`, and eval arms unchanged.
+///
 /// # Performance
 ///
 /// Each turn spawns a new process. The session resume mechanism mitigates cold-start
 /// costs for multi-turn conversations by allowing the CLI to reuse cached context.
+/// (Interactive mode keeps one process alive instead, preserving the prompt cache.)
 #[derive(Debug, Clone)]
 pub struct ClaudeCodeBackend {
     binary: String,
     extra_args: Vec<String>,
     model: Option<String>,
     session: Arc<AsyncMutex<Option<String>>>,
+    question_tx: Option<mpsc::Sender<QuestionRequest>>,
+    interactive: Arc<AsyncMutex<Option<InteractiveProc>>>,
 }
 
 impl ClaudeCodeBackend {
@@ -40,6 +55,8 @@ impl ClaudeCodeBackend {
             extra_args: vec![],
             model: None,
             session: Arc::new(AsyncMutex::new(None)),
+            question_tx: None,
+            interactive: Arc::new(AsyncMutex::new(None)),
         }
     }
 
@@ -53,6 +70,71 @@ impl ClaudeCodeBackend {
     pub fn with_model(mut self, model: impl Into<String>) -> Self {
         self.model = Some(model.into());
         self
+    }
+
+    /// Enable interactive mode: `AskUserQuestion` requests are forwarded to
+    /// `tx` and answered mid-turn (see the type-level docs).
+    pub fn with_question_channel(mut self, tx: mpsc::Sender<QuestionRequest>) -> Self {
+        self.question_tx = Some(tx);
+        self
+    }
+
+    /// Attach (or replace) the interactive question channel on an existing backend.
+    pub fn attach_question_channel(&mut self, tx: mpsc::Sender<QuestionRequest>) {
+        self.question_tx = Some(tx);
+    }
+
+    /// Forget the CLI session and kill any interactive process, so the next
+    /// turn starts a brand-new conversation (REPL `/reset` & `/clear`).
+    pub async fn reset_session(&self) {
+        *self.session.lock().await = None;
+        if let Some(proc) = self.interactive.lock().await.take() {
+            proc.shutdown();
+        }
+    }
+
+    /// Run one turn on the long-lived interactive process, (re)spawning it on
+    /// first use, after process death, or when the first write fails because
+    /// the process died between turns.
+    async fn interactive_turn(
+        &self,
+        prompt: &str,
+        qtx: mpsc::Sender<QuestionRequest>,
+    ) -> Result<BoxStream<'static, Result<ResponseChunk>>> {
+        let mut guard = self.interactive.lock().await;
+        let user_line = build_user_turn_line(prompt);
+        for attempt in 0..2 {
+            if guard.as_ref().is_none_or(|p| !p.is_alive()) {
+                *guard = Some(
+                    interactive::spawn_interactive(
+                        &self.binary,
+                        self.model.as_deref(),
+                        &self.extra_args,
+                        self.session.clone(),
+                        qtx.clone(),
+                    )
+                    .await?,
+                );
+            }
+            let proc = guard.as_ref().expect("spawned above");
+            let rx = proc.begin_turn()?;
+            match proc.write_line(&user_line).await {
+                Ok(()) => return Ok(Box::pin(ReceiverStream::new(rx))),
+                Err(e) => {
+                    // The process likely died between turns; retire it and
+                    // retry once on a fresh spawn (resuming the session).
+                    proc.abort_turn();
+                    drop(rx);
+                    if let Some(old) = guard.take() {
+                        old.shutdown();
+                    }
+                    if attempt == 1 {
+                        return Err(e);
+                    }
+                }
+            }
+        }
+        unreachable!("loop returns on success or final error")
     }
 }
 
@@ -106,6 +188,9 @@ impl ClaudeBackend for ClaudeCodeBackend {
         _convo: &Conversation,
         prompt: &str,
     ) -> Result<BoxStream<'static, Result<ResponseChunk>>> {
+        if let Some(qtx) = &self.question_tx {
+            return self.interactive_turn(prompt, qtx.clone()).await;
+        }
         let resume_session = self.session.lock().await.clone();
 
         let mut cmd = Command::new(&self.binary);
@@ -214,7 +299,7 @@ impl ClaudeBackend for ClaudeCodeBackend {
     }
 }
 
-async fn parse_line(
+pub(crate) async fn parse_line(
     line: &str,
     session_handle: &Arc<AsyncMutex<Option<String>>>,
 ) -> Result<Option<ResponseChunk>> {

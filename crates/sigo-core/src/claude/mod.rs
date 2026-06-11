@@ -20,6 +20,8 @@ pub mod api;
 pub mod claude_code;
 /// Test/bench stub with scripted responses.
 pub mod fakes;
+/// Long-lived interactive `claude` process (AskUserQuestion passthrough).
+pub(crate) mod interactive;
 /// AskUserQuestion passthrough types + stream-json control protocol.
 pub mod question;
 
