@@ -56,6 +56,12 @@ Translate the text into natural English. \
 Output only the English translation.";
 
 /// ZH→EN few-shot demonstrations.
+///
+/// Includes an interrogative and a bare option-label pair: the
+/// AskUserQuestion passthrough translates short questions ("继续吗？") and
+/// option labels ("蓝色") for display, and those instruction/answer-shaped
+/// fragments are the most likely to bait a small model into answering
+/// instead of translating.
 pub const ZH_TO_EN_FEW_SHOTS: &[(&str, &str)] = &[
     (
         "解释Rust借用检查器的工作原理。",
@@ -65,6 +71,11 @@ pub const ZH_TO_EN_FEW_SHOTS: &[(&str, &str)] = &[
         "编写一个反转链表的Python函数。",
         "Write a Python function that reverses a linked list.",
     ),
+    (
+        "要不要继续执行迁移？",
+        "Do you want to continue with the migration?",
+    ),
+    ("蓝色", "Blue"),
 ];
 
 #[cfg(test)]
@@ -92,6 +103,26 @@ mod tests {
         assert!(
             s.contains("简练书面语") || s.contains("简洁"),
             "terse missing 简练书面语: {s}"
+        );
+    }
+
+    #[test]
+    fn zh_to_en_few_shots_cover_question_payload_shapes() {
+        // AskUserQuestion passthrough sends short interrogatives ("继续吗？")
+        // and bare option labels ("蓝色") through ZH→EN display translation —
+        // exactly the shapes that bait a small model into ANSWERING instead
+        // of translating. The few-shots must demonstrate both shapes.
+        assert!(
+            ZH_TO_EN_FEW_SHOTS
+                .iter()
+                .any(|(zh, en)| zh.ends_with('？') && en.ends_with('?')),
+            "few-shots must include an interrogative pair"
+        );
+        assert!(
+            ZH_TO_EN_FEW_SHOTS
+                .iter()
+                .any(|(zh, _)| zh.chars().count() <= 4 && !zh.ends_with('？')),
+            "few-shots must include a short option-label pair"
         );
     }
 
