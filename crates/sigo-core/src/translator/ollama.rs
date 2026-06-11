@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
@@ -167,7 +166,6 @@ impl OllamaTranslator {
     }
 }
 
-#[async_trait]
 impl Translator for OllamaTranslator {
     async fn translate(&self, text: &str, dir: Direction) -> Result<String> {
         // Structural code protection: fenced/inline code is replaced by

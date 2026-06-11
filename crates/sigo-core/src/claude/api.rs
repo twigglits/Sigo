@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 use eventsource_stream::Eventsource;
 use futures::{stream::BoxStream, StreamExt};
 use serde::{Deserialize, Serialize};
@@ -62,6 +61,8 @@ pub struct ApiBackend {
     base_url: String,
     model: String,
     max_tokens: u32,
+    temperature: Option<f64>,
+    top_p: Option<f64>,
 }
 
 impl ApiBackend {
@@ -70,6 +71,17 @@ impl ApiBackend {
     /// `api_key` is an Anthropic API key (`sk-...`). `model` is the Claude model
     /// name (e.g. `"claude-sonnet-4-6"`). `max_tokens` is the generation limit.
     pub fn new(api_key: impl Into<String>, model: impl Into<String>, max_tokens: u32) -> Self {
+        Self::with_options(api_key, model, max_tokens, None, None)
+    }
+
+    /// Full constructor with optional temperature and top_p.
+    pub fn with_options(
+        api_key: impl Into<String>,
+        model: impl Into<String>,
+        max_tokens: u32,
+        temperature: Option<f64>,
+        top_p: Option<f64>,
+    ) -> Self {
         let client = reqwest::Client::builder()
             .connect_timeout(CONNECT_TIMEOUT)
             .read_timeout(READ_TIMEOUT)
@@ -81,6 +93,8 @@ impl ApiBackend {
             base_url: ANTHROPIC_API_BASE.to_string(),
             model: model.into(),
             max_tokens,
+            temperature,
+            top_p,
         }
     }
 
@@ -88,6 +102,18 @@ impl ApiBackend {
     /// self-hosted endpoints).
     pub fn with_base_url(mut self, base_url: impl Into<String>) -> Self {
         self.base_url = base_url.into();
+        self
+    }
+
+    /// Set the sampling temperature (0.0–1.0). Pass `None` to use the API default.
+    pub fn with_temperature(mut self, temperature: Option<f64>) -> Self {
+        self.temperature = temperature;
+        self
+    }
+
+    /// Set the nucleus sampling threshold (0.0–1.0). Pass `None` to use the API default.
+    pub fn with_top_p(mut self, top_p: Option<f64>) -> Self {
+        self.top_p = top_p;
         self
     }
 }
@@ -100,6 +126,10 @@ struct MessagesRequest<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     system: Option<&'a str>,
     messages: Vec<RequestMessage<'a>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    temperature: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    top_p: Option<f64>,
 }
 
 #[derive(Serialize)]
@@ -171,7 +201,6 @@ struct AccumulatedUsage {
     stop_reason: Option<String>,
 }
 
-#[async_trait]
 impl ClaudeBackend for ApiBackend {
     async fn stream_turn(
         &self,
@@ -200,6 +229,8 @@ impl ClaudeBackend for ApiBackend {
             stream: true,
             system: convo.system.as_deref(),
             messages,
+            temperature: self.temperature,
+            top_p: self.top_p,
         };
 
         let url = format!("{}/v1/messages", self.base_url.trim_end_matches('/'));

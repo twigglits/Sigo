@@ -77,4 +77,4 @@ pub use stream::{Segment, SentenceBuffer};
 /// Tokenizer re-exports.
 pub use tokenizer::{Tokenizer, TokenizerProxy};
 /// Translator re-exports.
-pub use translator::{FakeTranslator, OllamaTranslator, Translator};
+pub use translator::{FakeTranslator, OllamaTranslator, Translator, sanitize};

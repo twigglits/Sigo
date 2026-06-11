@@ -170,6 +170,13 @@ async fn handle_slash(rest: &str, state: &mut ReplState, config: &SigoConfig) ->
                 state.orchestrator.session_id
             );
         }
+        "clear" => {
+            state.orchestrator.clear();
+            println!(
+                "conversation cleared (session {} continues)",
+                state.orchestrator.session_id
+            );
+        }
         "save" => {
             if let Some(arg) = args.first() {
                 let path = std::path::PathBuf::from(arg);
@@ -273,7 +280,8 @@ fn print_help() {
     println!("  /help                       show this list");
     println!("  /quit, /exit                leave the REPL");
     println!("  /verbose                    toggle verbose display");
-    println!("  /reset                      start a new session");
+    println!("  /reset                      start a new session with a new ID");
+    println!("  /clear                      clear history but keep the same session");
     println!("  /save <path>                dump the current session to a markdown file");
     println!("  /control-mode <m>           off | prompt-only | full");
     println!("  /model translator <name>    swap translator model");
@@ -297,11 +305,15 @@ pub fn build_backend(kind: BackendKind, cfg: &SigoConfig) -> Result<Arc<dyn Clau
         BackendKind::Api => {
             let key = std::env::var("ANTHROPIC_API_KEY")
                 .context("ANTHROPIC_API_KEY env var not set (required for `api` backend)")?;
-            Ok(Arc::new(ApiBackend::new(
-                key,
-                &cfg.claude.model,
-                cfg.claude.max_tokens,
-            )))
+            Ok(Arc::new(
+                ApiBackend::with_options(
+                    key,
+                    &cfg.claude.model,
+                    cfg.claude.max_tokens,
+                    cfg.claude.temperature,
+                    cfg.claude.top_p,
+                ),
+            ))
         }
         BackendKind::ClaudeCode => Ok(Arc::new(
             ClaudeCodeBackend::new(&cfg.claude.claude_code.binary)

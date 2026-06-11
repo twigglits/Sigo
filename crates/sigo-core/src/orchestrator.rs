@@ -13,6 +13,12 @@
 //! Chinese→English sentence translations run concurrently (up to
 //! [`MAX_INFLIGHT`]) while the Claude stream is being read. A
 //! [`FuturesOrdered`] queue ensures outbound order matches the stream order.
+//!
+//! ## Observability
+//!
+//! [`run_turn`] and key internal methods are instrumented with `tracing` spans
+//! for latency breakdown. Enable with `RUST_LOG=sigo_core=info` (or `=debug`
+//! for per-phase timing).
 
 use chrono::Utc;
 use futures::stream::FuturesOrdered;
@@ -23,6 +29,7 @@ use std::io::Write;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Instant;
+use tracing::{info_span, instrument, Span};
 use uuid::Uuid;
 
 use crate::benchmark::{BenchmarkSink, EnglishControlRun, TurnRecord, SCHEMA_VERSION};
@@ -42,6 +49,16 @@ pub enum ControlMode {
     PromptOnly,
     /// Full parallel EN turn with token and cost tracking.
     Full,
+}
+
+impl std::fmt::Display for ControlMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ControlMode::Off => write!(f, "off"),
+            ControlMode::PromptOnly => write!(f, "prompt-only"),
+            ControlMode::Full => write!(f, "full"),
+        }
+    }
 }
 
 impl ControlMode {
@@ -152,24 +169,51 @@ impl Orchestrator {
         self.english_convo_tokens = 0;
     }
 
+    /// Clear the conversation history and reset the turn counter without changing the
+    /// session ID. Unlike [`reset`], the session identity is preserved so aggregated
+    /// bench stats can still be attributed to a single session.
+    pub fn clear(&mut self) {
+        self.turn_index = 0;
+        self.chinese_convo = Conversation::new();
+        self.english_convo = Conversation::new();
+        self.chinese_convo_tokens = 0;
+        self.english_convo_tokens = 0;
+    }
+
     /// Run one full turn end-to-end. The streamed English output is written to `out`.
     /// Returns the recorded TurnRecord on success. On failure (incomplete stream), conversation
     /// state is unchanged; the record is still appended to the sink with `incomplete = true`.
+    #[instrument(skip(self, out), fields(session_id, turn_index, control_mode))]
     pub async fn run_turn(
         &mut self,
         english_prompt: &str,
         out: &mut dyn OutputSink,
     ) -> Result<TurnRecord> {
+        // Record session metadata on the span so it shows up in structured logs.
+        Span::current()
+            .record("session_id", tracing::field::display(self.session_id));
+        Span::current().record("turn_index", self.turn_index);
+        Span::current()
+            .record("control_mode", tracing::field::display(self.config.control_mode));
+
         let turn_started = Instant::now();
         let mut errors: Vec<String> = vec![];
 
+        // Step 0: Sanitize the user's English prompt before passing to the
+        // local translator, preventing injection attempts against the Ollama
+        // model's system prompt / role context.
+        let sanitized = crate::translator::sanitize::sanitize(english_prompt);
+
         // Step 1: EN → ZH
+        let translation_in_span = info_span!("en_to_zh");
+        let _guard = translation_in_span.enter();
         let translation_in_started = Instant::now();
         let raw_chinese_prompt = self
             .translator
-            .translate(english_prompt, Direction::EnToZh)
+            .translate(&sanitized, Direction::EnToZh)
             .await?;
         let translation_in_ms = translation_in_started.elapsed().as_millis() as u64;
+        drop(_guard);
 
         // Step 2: Local token counts, and whitespace compaction of the outbound
         // prompt guarded by a live comparison: BPE merges are nonlinear, so
@@ -177,6 +221,8 @@ impl Orchestrator {
         // assumed. Everything downstream (send, record, history, counts) sees
         // only the winning form; the pre-compaction count is recorded so the
         // delta stays attributable from bench artifacts.
+        let compact_span = info_span!("compact");
+        let _guard = compact_span.enter();
         let english_prompt_tokens_local = self
             .tokenizer
             .count_tokens(english_prompt)
@@ -208,6 +254,7 @@ impl Orchestrator {
             self.chinese_convo_tokens + chinese_prompt_tokens_local;
         let english_cumulative_prompt_tokens_local =
             self.english_convo_tokens + english_prompt_tokens_local;
+        drop(_guard);
 
         // Step 2.5 (Full control mode only): launch parallel English Claude run.
         let english_control_future: Option<tokio::task::JoinHandle<Result<EnglishControlRun>>> =
@@ -222,13 +269,18 @@ impl Orchestrator {
                 None
             };
 
-        // Step 3: Open Claude stream — conversation history does NOT include the new prompt yet.
+        // Step 3 + 4: Open Claude stream and drain it while translating
+        // sentences concurrently. This block is wrapped in a tracing span so
+        // the combined latency (Claude TTFT + generation + ZH→EN translation)
+        // is visible in structured logs.
+        let claude_span = info_span!("claude_stream");
+        let _claude_guard = claude_span.enter();
         let mut stream = self
             .backend
             .stream_turn(&self.chinese_convo, &chinese_prompt)
             .await?;
 
-        // Step 4: Drain the Claude stream while translating completed sentences
+        // Drain the Claude stream while translating completed sentences
         // concurrently (bounded), emitting results in production order. Decoupling
         // translation from stream reading means a long answer no longer pays N
         // sequential translation latencies.
@@ -337,6 +389,7 @@ impl Orchestrator {
             _ => 0,
         };
         let claude_total_ms = claude_started.elapsed().as_millis() as u64;
+        drop(_claude_guard);
 
         // Step 5: Response-side token count.
         let chinese_response_tokens_local = self
@@ -383,6 +436,8 @@ impl Orchestrator {
         };
 
         // Step 7: Build + record TurnRecord (always, including incomplete turns).
+        let record_span = info_span!("record");
+        let _record_guard = record_span.enter();
         let record = TurnRecord {
             schema_version: SCHEMA_VERSION,
             session_id: self.session_id,
@@ -418,6 +473,7 @@ impl Orchestrator {
         if let Err(e) = self.sink.record(&record) {
             tracing::warn!(error = %e, "benchmark sink failed");
         }
+        drop(_record_guard);
 
         if !incomplete {
             self.turn_index += 1;
@@ -495,6 +551,7 @@ fn apply_emit(
     out.flush();
 }
 
+#[instrument(skip(backend, en_convo))]
 async fn run_english_control(
     backend: Arc<dyn ClaudeBackend>,
     en_convo: Conversation,
@@ -690,7 +747,6 @@ mod tests {
         struct Sleepy {
             d: Duration,
         }
-        #[async_trait::async_trait]
         impl Translator for Sleepy {
             async fn translate(&self, text: &str, dir: Direction) -> Result<String> {
                 tokio::time::sleep(self.d).await;

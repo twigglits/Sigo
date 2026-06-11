@@ -42,6 +42,22 @@ impl BenchmarkSink for JsonlSink {
         w.flush()?;
         Ok(())
     }
+
+    fn flush(&self) -> Result<()> {
+        let mut w = self
+            .writer
+            .lock()
+            .map_err(|_| SigoError::Sink("lock poisoned".into()))?;
+        w.flush().map_err(|e| SigoError::Sink(e.to_string()))
+    }
+}
+
+impl Drop for JsonlSink {
+    fn drop(&mut self) {
+        if let Ok(mut w) = self.writer.lock() {
+            let _ = w.flush();
+        }
+    }
 }
 
 #[cfg(test)]

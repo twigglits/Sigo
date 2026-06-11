@@ -41,6 +41,12 @@ pub use turn_record::{EnglishControlRun, TurnRecord, SCHEMA_VERSION};
 pub trait BenchmarkSink: Send + Sync {
     /// Persist one turn record.
     fn record(&self, turn: &TurnRecord) -> Result<()>;
+
+    /// Flush any buffered data to the underlying storage. Called during
+    /// graceful shutdown to ensure in-flight writes are committed.
+    fn flush(&self) -> Result<()> {
+        Ok(())
+    }
 }
 
 /// In-memory sink for tests. Stores records in a [`Mutex`]-guarded [`Vec`].

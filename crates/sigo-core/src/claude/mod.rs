@@ -9,7 +9,6 @@
 //! | [`ClaudeCodeBackend`] | Local `claude` CLI process (Claude Code) |
 //! | [`FakeBackend`] | Test/bench stub with scripted responses |
 
-use async_trait::async_trait;
 use futures::stream::BoxStream;
 
 use crate::conversation::{Conversation, Usage};
@@ -40,7 +39,6 @@ pub enum ResponseChunk {
 ///
 /// Implementations handle the transport (HTTPS or sub-process), authentication,
 /// and SSE/NDJSON parsing.
-#[async_trait]
 pub trait ClaudeBackend: Send + Sync {
     /// Stream a turn. `convo` already contains prior history; `prompt` is the new user turn.
     async fn stream_turn(

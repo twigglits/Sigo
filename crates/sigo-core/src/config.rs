@@ -88,6 +88,12 @@ pub struct ClaudeConfig {
     /// Maximum output tokens per turn.
     #[serde(default = "default_claude_max_tokens")]
     pub max_tokens: u32,
+    /// Sampling temperature (0.0–1.0). `None` uses the API default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<f64>,
+    /// Nucleus sampling threshold (0.0–1.0). `None` uses the API default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub top_p: Option<f64>,
     /// Claude Code CLI-specific settings.
     #[serde(default)]
     pub claude_code: ClaudeCodeConfig,
@@ -166,6 +172,8 @@ impl Default for ClaudeConfig {
             backend: default_claude_backend(),
             model: default_claude_model(),
             max_tokens: default_claude_max_tokens(),
+            temperature: None,
+            top_p: None,
             claude_code: ClaudeCodeConfig::default(),
         }
     }
@@ -332,6 +340,18 @@ pub fn apply_env_overlay(cfg: &mut SigoConfig, get: impl Fn(&str) -> Option<Stri
     }
     if let Some(v) = get("SIGO_LOG_PATH") {
         cfg.benchmark.log_path = Some(PathBuf::from(v));
+    }
+    if let Some(v) = get("SIGO_CLAUDE_TEMPERATURE") {
+        cfg.claude.temperature = Some(v.parse().map_err(|_| {
+            SigoError::Config(format!(
+                "SIGO_CLAUDE_TEMPERATURE must be a float, got `{v}`"
+            ))
+        })?);
+    }
+    if let Some(v) = get("SIGO_CLAUDE_TOP_P") {
+        cfg.claude.top_p = Some(v.parse().map_err(|_| {
+            SigoError::Config(format!("SIGO_CLAUDE_TOP_P must be a float, got `{v}`"))
+        })?);
     }
     Ok(())
 }

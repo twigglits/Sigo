@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 use futures::stream::{self, BoxStream};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -97,7 +96,6 @@ impl FakeBackend {
     }
 }
 
-#[async_trait]
 impl ClaudeBackend for FakeBackend {
     async fn stream_turn(
         &self,
