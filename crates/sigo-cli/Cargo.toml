@@ -14,7 +14,7 @@ name = "sigo"
 path = "src/main.rs"
 
 [dependencies]
-sigo-core = { path = "../sigo-core", version = "0.4.0" }
+sigo-core = { path = "../sigo-core", version = "0.5.0" }
 anyhow.workspace = true
 clap.workspace = true
 rustyline.workspace = true
