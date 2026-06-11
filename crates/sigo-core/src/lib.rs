@@ -65,8 +65,9 @@ pub use conversation::{BackendKind, Conversation, Direction, Message, Role, Usag
 pub use error::{Result, SigoError};
 /// Eval module re-exports.
 pub use eval::{
-    build_eval_csv, build_eval_markdown, evaluate_answer, extract_code, roundtrip_fidelity,
-    summarize_eval, ArmCost, ArmEval, EvalSummary, Judge, OllamaJudge, Outcome, TaskEval,
+    build_eval_csv, build_eval_markdown, bwrap_works, evaluate_answer, extract_code,
+    roundtrip_fidelity, summarize_eval, ArmCost, ArmEval, EvalSummary, Judge, OllamaJudge,
+    Outcome, TaskEval,
 };
 /// Orchestrator re-exports.
 pub use orchestrator::{

@@ -101,7 +101,7 @@ const BWRAP_BASE: &[&str] = &[
 /// Whether bubblewrap is present AND actually works here. Probed once: nested
 /// namespaces (some CI/containers) can have bwrap installed yet fail to set up the
 /// sandbox, in which case we must NOT use it or every task would error spuriously.
-fn bwrap_works() -> bool {
+pub fn bwrap_works() -> bool {
     static OK: OnceLock<bool> = OnceLock::new();
     *OK.get_or_init(|| {
         std::process::Command::new("bwrap")

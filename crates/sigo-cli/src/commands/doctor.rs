@@ -1,7 +1,7 @@
 //! Full setup verification (doctor subcommand).
 
 use anyhow::Result;
-use sigo_core::{SigoConfig, Tokenizer, TokenizerProxy};
+use sigo_core::{eval, SigoConfig, Tokenizer, TokenizerProxy};
 use std::time::Duration;
 
 /// Run the `doctor` connectivity/setup check.
@@ -51,6 +51,10 @@ pub async fn run(config: &SigoConfig) -> Result<()> {
     all_ok &= check(
         "python3 available (for --eval coding)",
         check_python3().await,
+    );
+    all_ok &= check(
+        "eval sandbox",
+        check_eval_sandbox().await,
     );
     all_ok &= check(
         "log path writable",
@@ -159,6 +163,14 @@ async fn check_python3() -> Result<String> {
         Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
     } else {
         anyhow::bail!("python3 --version exited {}", out.status)
+    }
+}
+
+async fn check_eval_sandbox() -> Result<String> {
+    if eval::code_exec::bwrap_works() {
+        Ok("bubblewrap — full namespace isolation".into())
+    } else {
+        Ok("in-process Python guard (cross-platform; install bubblewrap on Linux for stronger isolation)".into())
     }
 }
 

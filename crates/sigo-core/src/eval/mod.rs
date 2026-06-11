@@ -30,7 +30,7 @@ pub mod fidelity;
 /// Statistical metrics (bootstrap CI, Wilson CI, win rates).
 pub mod metrics;
 
-pub use code_exec::{evaluate_answer, extract_code, Outcome};
+pub use code_exec::{bwrap_works, evaluate_answer, extract_code, Outcome};
 pub use eval_report::{
     build_eval_csv, build_eval_markdown, summarize_eval, ArmEval, EvalSummary, TaskEval,
 };
