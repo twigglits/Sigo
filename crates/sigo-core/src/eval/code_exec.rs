@@ -5,8 +5,9 @@ use std::time::Duration;
 use tokio::process::Command;
 
 /// In-process Python hardening prepended to every runner. Best-effort: it nulls the
-/// common shell/file/exec entry points and caps address space so a buggy or hostile
-/// solution can't trivially trash the host or OOM a long run.
+/// common shell/file/exec entry points, caps address space, and disables network /
+/// FFI modules so a buggy or hostile solution can't trivially trash the host, dial
+/// out, or OOM a long run.
 ///
 /// On Linux, bubblewrap provides additional network + filesystem isolation when
 /// available. On macOS / Windows (and Linux without bwrap), this preamble is the
@@ -47,14 +48,42 @@ except Exception:
     pass
 try:
     import subprocess as _subprocess
-    _subprocess.Popen = None
+    for _n in ('Popen', 'run', 'call', 'check_call', 'check_output',
+               'getoutput', 'getstatusoutput', 'CREATE_NEW_CONSOLE',
+               'STARTUPINFO'):
+        if hasattr(_subprocess, _n):
+            try:
+                setattr(_subprocess, _n, None)
+            except Exception:
+                pass
 except Exception:
     pass
+# --- null network modules (cross-platform) ---
+_net = ('socket', 'urllib', 'urllib.request', 'urllib.parse', 'urllib.error',
+        'http', 'http.client', 'http.server', 'ssl', 'ftplib', 'smtplib',
+        'telnetlib', 'poplib', 'imaplib', 'nntplib', 'xmlrpc', 'xmlrpc.client',
+        'xmlrpc.server', 'asyncio', 'asyncore', 'asynchat')
+for _m in _net:
+    _sys.modules[_m] = None
+# --- null FFI modules (cross-platform) ---
+_ffi = ('ctypes', 'ctypes.wintypes', '_ctypes', 'cffi', 'cffi.api',
+        'cffi.ffiplatform', 'cffi.cparser', '_cffi_backend')
+for _m in _ffi:
+    _sys.modules[_m] = None
+# --- null forbidden built-in modules ---
+for _m in ('tkinter', 'psutil', 'resource', 'multiprocessing',
+           'multiprocessing.process', 'multiprocessing.spawn',
+           'multiprocessing.forkserver', 'multiprocessing.semaphore_tracker',
+           'signal', 'tempfile', 'pdb', 'trace', 'traceback',
+           'webbrowser', 'antigravity', 'turtle'):
+    _sys.modules[_m] = None
 import builtins as _builtins
 _builtins.exit = None
 _builtins.quit = None
-for _m in ('tkinter', 'psutil', 'resource'):
-    _sys.modules[_m] = None
+_builtins.input = None   # block interactive I/O (would hang in a subprocess)
+_builtins.exec = None    # prevent dynamic code execution / escape
+_builtins.compile = None
+_builtins.breakpoint = None  # disable debugger
 # --- end sigo sandbox preamble ---
 "#;
 
@@ -116,8 +145,53 @@ pub fn bwrap_works() -> bool {
     })
 }
 
-/// Command that runs `runner` (absolute, inside `workdir`): bubblewrap-wrapped when it
-/// works, else bare `python3` (still hardened by the in-process preamble).
+/// Whether `sandbox-exec` (macOS) is available. Probed once.
+#[cfg(target_os = "macos")]
+fn sandbox_exec_works() -> bool {
+    static OK: OnceLock<bool> = OnceLock::new();
+    *OK.get_or_init(|| {
+        std::process::Command::new("sandbox-exec")
+            .arg("-p")
+            .arg("(version 1)(deny default)(allow process-exec)(allow sysctl-read)")
+            .arg("python3")
+            .arg("-c")
+            .arg("pass")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    })
+}
+
+/// Build a sandbox-exec profile string that denies everything except what is needed
+/// to run Python inside `workdir`.
+#[cfg(target_os = "macos")]
+fn sandbox_profile(workdir: &Path) -> String {
+    let wd = workdir.display();
+    format!(
+        "(version 1)\
+         (deny default)\
+         (allow file-read*)\
+         (allow file-write* (subpath \"{wd}\"))\
+         (allow process-exec (literal \"/usr/bin/python3\"))\
+         (allow process-exec (literal \"/usr/local/bin/python3\"))\
+         (allow process-exec (literal \"/opt/homebrew/bin/python3\"))\
+         (allow sysctl-read)\
+         (allow signal*)\
+         (deny network*)\
+         (deny ipc-posix*)\
+         (deny mach*)\
+         (deny iokit-open)"
+    )
+}
+
+/// Command that runs `runner` (absolute, inside `workdir`). Sandbox strategy:
+///
+/// 1. Linux + bubblewrap → strongest isolation (new namespaces, ro system).
+/// 2. macOS + sandbox-exec → moderate isolation (deny network, restrict fs).
+/// 3. Fallback → bare `python3` (still hardened by the in-process preamble).
 fn runner_command(workdir: &Path, runner: &Path) -> Command {
     if bwrap_works() {
         let mut c = Command::new("bwrap");
@@ -131,6 +205,16 @@ fn runner_command(workdir: &Path, runner: &Path) -> Command {
             .arg(runner);
         c
     } else {
+        #[cfg(target_os = "macos")]
+        if sandbox_exec_works() {
+            let profile = sandbox_profile(workdir);
+            let mut c = Command::new("sandbox-exec");
+            c.arg("-p")
+                .arg(&profile)
+                .arg("python3")
+                .arg(runner);
+            return c;
+        }
         let mut c = Command::new("python3");
         c.arg(runner);
         c

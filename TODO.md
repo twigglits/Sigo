@@ -1,27 +1,27 @@
 # Sigo Improvement To-Do List
 
 ## 🟢 Usability
-- [ ] **REPL History**: Verify/Implement persistent history saving for `rustyline`.
-- [ ] **TTFT Spinner**: Add a visual spinner (e.g., `indicatif`) while waiting for the first token (TTFT).
-- [ ] **Config Pre-flight**: Add a validation step for `sigo.toml` in `sigo doctor`.
-- [ ] **More Slash-Commands**: Add `/clear` to purge the current session without `/reset`.
+- [x] **REPL History**: Persistent history via rustyline's `history` file — working.
+- [x] **TTFT Spinner**: Added indicatif spinner while waiting for first token.
+- [x] **Config Pre-flight**: `sigo doctor` validates `sigo.toml`.
+- [x] **More Slash-Commands**: `/clear` added — purges session without `/reset`.
 
 ## 🟡 Abstraction
-- [ ] **RPITIT**: Migrate from `async-trait` to native async traits (Rust 1.88+).
-- [ ] **Declarative Config**: Explore replacing manual `merge_into` with `config-rs` or a more robust layering pattern.
-- [ ] **Backend Traits**: Refine `ClaudeBackend` and `Translator` traits to support more configurations (e.g., temperature, top_p).
+- [ ] ~~**RPITIT**~~: Cancelled — native async traits are `!dyn`-compatible; `Arc<dyn Translator>` is architecturally required for runtime hot-swap (`/model`, `/backend`).
+- [ ] ~~**Declarative Config**~~: Cancelled — manual `merge_into` + serde + env overlay is clean and well-tested; `config-rs` adds complexity without measurable benefit.
+- [x] **Backend Traits**: `ClaudeConfig` now has `temperature`/`top_p` fields; `ApiBackend::with_options(temperature, top_p)`; env vars `SIGO_CLAUDE_TEMPERATURE`/`SIGO_CLAUDE_TOP_P`.
 
 ## 🔴 Security
-- [ ] **Cross-platform Sandbox**: Implement a lighter sandbox for non-Linux (macOS/Windows) instead of relying solely on `bubblewrap`.
-- [ ] **Reqwest Timeouts**: Audit all API calls to ensure explicit `timeout()` is applied per request.
-- [ ] **Input Sanitization**: Ensure prompts are sanitized before being passed to the local translator to prevent "prompt injection" into the translator itself.
+- [x] **Cross-platform Sandbox**: In-process Python preamble strengthened to null socket/urllib/ctypes/ffi/asyncio (+macOS `sandbox-exec` fallback). Cross-platform baseline is always active.
+- [x] **Reqwest Timeouts**: Explicit `timeout()` on every API call.
+- [x] **Input Sanitization**: New `translator/sanitize.rs` strips null/control chars and neuters `<source>` markers. Integrated in `orchestrator::run_turn`.
 
 ## 🔵 Reliability
-- [ ] **Transient Error Retries**: Implement a retry mechanism for `reqwest` calls (e.g., using `tokio-retry`).
-- [ ] **Graceful Shutdown**: Ensure `BenchmarkSink` is flushed correctly on `Ctrl-C`.
-- [ ] **Ollama Health Check**: Integrate a heartbeat check in the orchestrator before starting a turn.
+- [x] **Transient Error Retries**: `tokio-retry` on server errors (429, 5xx) with exponential backoff.
+- [x] **Graceful Shutdown**: `BenchmarkSink::flush()` + `JsonlSink::Drop` flushes on Ctrl-C.
+- [x] **Ollama Health Check**: Heartbeat check before starting a turn.
 
 ## 🟣 Modern Best Practices
-- [ ] **Structured Tracing**: Implement `tracing::span` in `orchestrator::run_turn` for better observability.
-- [ ] **Dependency Audit**: Review `Cargo.toml` for outdated crates or redundant dependencies.
-- [ ] **CI Integration**: Add a "dry-run" benchmark in CI to detect token regressions.
+- [x] **Structured Tracing**: `#[instrument]` on run_turn + `info_span!` for en_to_zh/compact/claude_stream/record phases.
+- [x] **Dependency Audit**: All deps actively used. Duplicate warnings (`getrandom`, `unicode-width`, `windows-sys`, `wit-bindgen`) are from incompatible transitive major versions — not fixable upstream.
+- [x] **CI Integration**: Token regression test (`tests/token_regression.rs`) asserts deterministic o200k_base counts through sanitize→compact→count pipeline. Snapshot updater included.
