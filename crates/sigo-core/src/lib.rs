@@ -1,3 +1,4 @@
+#![allow(async_fn_in_trait)]
 //! Sigo core library: translator/claude/tokenizer abstractions plus
 //! per-turn orchestration for the Chinese-bridged Claude pipeline.
 //!

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Pre-commit hook — reject commit if Rust formatting is not clean.
+# Pre-commit hook — reject commit if Rust formatting or clippy is not clean.
 # Installed by pointing `core.hooksPath` at this directory:
 #   git config core.hooksPath .githooks
 
@@ -20,3 +20,14 @@ if ! cargo fmt --all -- --check 2>/dev/null; then
 fi
 
 echo "✅ Rust formatting is clean."
+echo ""
+echo "🔍 Checking clippy..."
+
+if ! cargo clippy --workspace --all-targets -- -D warnings 2>/dev/null; then
+    echo ""
+    echo "❌ Clippy check failed. Fix the warnings above, then commit again."
+    echo ""
+    exit 1
+fi
+
+echo "✅ Clippy is clean."
