@@ -13,5 +13,9 @@
 pub mod cli;
 pub mod commands;
 pub(crate) mod display;
+/// Terminal multiple-choice picker for AskUserQuestion passthrough.
+pub mod picker;
+/// Bridges backend question requests to the picker via the translator (SOP).
+pub mod question_bridge;
 /// Interactive REPL with slash-commands.
 pub mod repl;
