@@ -84,6 +84,11 @@ impl ClaudeCodeBackend {
         self.question_tx = Some(tx);
     }
 
+    /// Whether an interactive question channel is attached (interactive mode).
+    pub fn has_question_channel(&self) -> bool {
+        self.question_tx.is_some()
+    }
+
     /// Forget the CLI session and kill any interactive process, so the next
     /// turn starts a brand-new conversation (REPL `/reset` & `/clear`).
     pub async fn reset_session(&self) {

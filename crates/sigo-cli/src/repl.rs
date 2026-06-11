@@ -3,16 +3,18 @@ use indicatif::{ProgressBar, ProgressStyle};
 use rustyline::error::ReadlineError;
 use rustyline::DefaultEditor;
 use std::io::Write;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
+use tokio::sync::mpsc;
 
 use sigo_core::{
     AnyClaudeBackend, AnyTranslator, ApiBackend, BackendKind, BenchmarkSink, ClaudeCodeBackend,
-    ControlMode, JsonlSink, OllamaTranslator, Orchestrator, OrchestratorConfig, SigoConfig,
-    Tokenizer, TokenizerProxy,
+    ControlMode, JsonlSink, OllamaTranslator, Orchestrator, OrchestratorConfig, QuestionRequest,
+    SigoConfig, Tokenizer, TokenizerProxy,
 };
 
 use crate::display::Display;
+use crate::question_bridge::{SharedTranslator, SpinnerSlot};
 
 /// State preserved across REPL turns.
 pub struct ReplState {
@@ -20,6 +22,48 @@ pub struct ReplState {
     pub orchestrator: Orchestrator,
     /// Display configuration (verbose mode, etc.).
     pub display: Display,
+    /// Sender for AskUserQuestion passthrough; re-attached to the backend
+    /// after `/backend` and `/model claude` swaps. `None` when interactive
+    /// mode is disabled in config.
+    pub question_tx: Option<mpsc::Sender<QuestionRequest>>,
+    /// Translator shared with the question bridge (kept in sync by
+    /// `/model translator`).
+    pub bridge_translator: SharedTranslator,
+    /// The active turn's spinner, suspended while the picker is on screen.
+    pub spinner_slot: SpinnerSlot,
+}
+
+/// Re-attach the question channel after the backend is built or swapped.
+fn attach_question_channel(state: &mut ReplState) {
+    if let (AnyClaudeBackend::ClaudeCode(b), Some(tx)) =
+        (&mut state.orchestrator.backend, &state.question_tx)
+    {
+        b.attach_question_channel(tx.clone());
+    }
+}
+
+/// Interactive claude-code turns are one-at-a-time, so the parallel English
+/// control run of `control_mode=full` cannot work there. Warn instead of
+/// failing mysteriously mid-turn.
+fn warn_if_full_control_with_interactive(state: &ReplState) {
+    if state.orchestrator.config.control_mode == ControlMode::Full
+        && state.question_tx.is_some()
+        && state.orchestrator.config.backend_kind == BackendKind::ClaudeCode
+    {
+        println!(
+            "warning: control-mode=full runs a parallel English turn, which the interactive \
+             claude-code backend rejects (one turn at a time). Use the api backend or set \
+             claude_code.interactive = false."
+        );
+    }
+}
+
+/// Reset the backend's own conversation state (the claude-code CLI session),
+/// so `/reset` and `/clear` truly start over instead of silently resuming.
+async fn reset_backend_session(backend: &AnyClaudeBackend) {
+    if let AnyClaudeBackend::ClaudeCode(b) = backend {
+        b.reset_session().await;
+    }
 }
 
 /// Build the full orchestrator stack (translator + backend + tokenizer + sink) from config.
@@ -66,10 +110,30 @@ pub async fn run(config: SigoConfig, verbose: bool) -> Result<()> {
 
     let orchestrator = build_orchestrator(&config)?;
 
+    let bridge_translator: SharedTranslator =
+        Arc::new(StdMutex::new(orchestrator.translator.clone()));
+    let spinner_slot: SpinnerSlot = Arc::default();
+    let question_tx = if config.claude.claude_code.interactive {
+        let (tx, rx) = mpsc::channel(4);
+        tokio::spawn(crate::question_bridge::run_bridge(
+            rx,
+            bridge_translator.clone(),
+            spinner_slot.clone(),
+        ));
+        Some(tx)
+    } else {
+        None
+    };
+
     let mut state = ReplState {
         orchestrator,
         display: Display::new(verbose),
+        question_tx,
+        bridge_translator,
+        spinner_slot,
     };
+    attach_question_channel(&mut state);
+    warn_if_full_control_with_interactive(&state);
 
     let mut editor = DefaultEditor::new().context("rustyline init")?;
     let history_path = config.resolved_history_path();
@@ -90,11 +154,12 @@ pub async fn run(config: SigoConfig, verbose: bool) -> Result<()> {
                         break;
                     }
                 } else {
-                    let mut out = SpinnerSink::new();
+                    let mut out = SpinnerSink::with_slot(state.spinner_slot.clone());
                     match state.orchestrator.run_turn(line, &mut out).await {
                         Ok(record) => state.display.print_turn_footer(&record),
                         Err(e) => eprintln!("turn failed: {e}"),
                     }
+                    *state.spinner_slot.lock().unwrap() = None;
                 }
             }
             Err(ReadlineError::Interrupted) => continue,
@@ -137,6 +202,14 @@ impl SpinnerSink {
             first_chunk: true,
         }
     }
+
+    /// Build a `SpinnerSink` and register its progress bar in `slot` so the
+    /// question bridge can suspend it while a picker is on screen.
+    pub fn with_slot(slot: SpinnerSlot) -> Self {
+        let sink = Self::new();
+        *slot.lock().unwrap() = Some(sink.pb.clone());
+        sink
+    }
 }
 
 impl sigo_core::OutputSink for SpinnerSink {
@@ -165,6 +238,7 @@ async fn handle_slash(rest: &str, state: &mut ReplState, config: &SigoConfig) ->
         }
         "reset" => {
             state.orchestrator.reset();
+            reset_backend_session(&state.orchestrator.backend).await;
             println!(
                 "conversation reset (new session id = {})",
                 state.orchestrator.session_id
@@ -172,6 +246,7 @@ async fn handle_slash(rest: &str, state: &mut ReplState, config: &SigoConfig) ->
         }
         "clear" => {
             state.orchestrator.clear();
+            reset_backend_session(&state.orchestrator.backend).await;
             println!(
                 "conversation cleared (session {} continues)",
                 state.orchestrator.session_id
@@ -194,6 +269,7 @@ async fn handle_slash(rest: &str, state: &mut ReplState, config: &SigoConfig) ->
                     Some(m) => {
                         state.orchestrator.config.control_mode = m;
                         println!("control-mode: {}", arg);
+                        warn_if_full_control_with_interactive(state);
                     }
                     None => println!("invalid control-mode (off | prompt-only | full)"),
                 }
@@ -215,6 +291,7 @@ async fn handle_slash(rest: &str, state: &mut ReplState, config: &SigoConfig) ->
                             )
                             .with_style(config.translator.style),
                         );
+                        *state.bridge_translator.lock().unwrap() = new_translator.clone();
                         state.orchestrator.translator = new_translator;
                         state.orchestrator.config.translator_model = args[1].to_string();
                         println!("translator model: {}", args[1]);
@@ -225,6 +302,7 @@ async fn handle_slash(rest: &str, state: &mut ReplState, config: &SigoConfig) ->
                         new_cfg.claude.model = args[1].to_string();
                         let new_backend = build_backend(bk, &new_cfg)?;
                         state.orchestrator.backend = new_backend;
+                        attach_question_channel(state);
                         state.orchestrator.config.claude_model = args[1].to_string();
                         println!(
                             "claude model: {} (note: prior cached tokens invalidated)",
@@ -244,6 +322,8 @@ async fn handle_slash(rest: &str, state: &mut ReplState, config: &SigoConfig) ->
                         let new_backend = build_backend(kind, config)?;
                         state.orchestrator.backend = new_backend;
                         state.orchestrator.config.backend_kind = kind;
+                        attach_question_channel(state);
+                        warn_if_full_control_with_interactive(state);
                         println!("backend: {arg} (note: prior cached tokens invalidated)");
                     }
                     Err(e) => println!("{e}"),
@@ -346,4 +426,101 @@ fn save_session(orch: &Orchestrator, path: &std::path::Path) -> Result<()> {
         writeln!(file)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sigo_core::{FakeBackend, FakeTranslator, MemorySink};
+
+    fn fake_state(question_tx: Option<mpsc::Sender<QuestionRequest>>) -> ReplState {
+        let cfg = OrchestratorConfig {
+            backend_kind: BackendKind::ClaudeCode,
+            claude_model: "m".into(),
+            translator_model: "t".into(),
+            control_mode: ControlMode::PromptOnly,
+        };
+        let translator = AnyTranslator::Fake(FakeTranslator::new());
+        let tokenizer: Arc<dyn Tokenizer> = Arc::new(TokenizerProxy::new().unwrap());
+        let orchestrator = Orchestrator::new(
+            cfg,
+            translator.clone(),
+            AnyClaudeBackend::Fake(FakeBackend::new()),
+            tokenizer,
+            Arc::new(MemorySink::new()),
+        );
+        ReplState {
+            orchestrator,
+            display: Display::new(false),
+            question_tx,
+            bridge_translator: Arc::new(StdMutex::new(translator)),
+            spinner_slot: Arc::default(),
+        }
+    }
+
+    #[tokio::test]
+    async fn backend_swap_to_claude_code_reattaches_question_channel() {
+        let (tx, _rx) = mpsc::channel(1);
+        let mut state = fake_state(Some(tx));
+        let config = SigoConfig::default();
+
+        handle_slash("backend claude-code", &mut state, &config)
+            .await
+            .unwrap();
+
+        match &state.orchestrator.backend {
+            AnyClaudeBackend::ClaudeCode(b) => assert!(
+                b.has_question_channel(),
+                "swapped-in backend must keep the interactive picker working"
+            ),
+            other => panic!("expected claude-code backend, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn backend_swap_without_channel_stays_non_interactive() {
+        let mut state = fake_state(None);
+        let config = SigoConfig::default();
+
+        handle_slash("backend claude-code", &mut state, &config)
+            .await
+            .unwrap();
+
+        match &state.orchestrator.backend {
+            AnyClaudeBackend::ClaudeCode(b) => assert!(!b.has_question_channel()),
+            other => panic!("expected claude-code backend, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn claude_model_swap_preserves_question_channel() {
+        let (tx, _rx) = mpsc::channel(1);
+        let mut state = fake_state(Some(tx));
+        let config = SigoConfig::default();
+        handle_slash("backend claude-code", &mut state, &config)
+            .await
+            .unwrap();
+
+        handle_slash("model claude claude-sonnet-4-6", &mut state, &config)
+            .await
+            .unwrap();
+
+        match &state.orchestrator.backend {
+            AnyClaudeBackend::ClaudeCode(b) => assert!(
+                b.has_question_channel(),
+                "/model claude must not silently drop the picker"
+            ),
+            other => panic!("expected claude-code backend, got {other:?}"),
+        }
+        assert_eq!(state.orchestrator.config.claude_model, "claude-sonnet-4-6");
+    }
+
+    #[tokio::test]
+    async fn reset_and_clear_run_against_any_backend_without_error() {
+        let mut state = fake_state(None);
+        let config = SigoConfig::default();
+        // Fake backend: reset_backend_session is a no-op but must not panic.
+        assert!(handle_slash("reset", &mut state, &config).await.unwrap());
+        assert!(handle_slash("clear", &mut state, &config).await.unwrap());
+    }
 }
