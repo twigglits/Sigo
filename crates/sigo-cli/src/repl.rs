@@ -305,15 +305,13 @@ pub fn build_backend(kind: BackendKind, cfg: &SigoConfig) -> Result<Arc<dyn Clau
         BackendKind::Api => {
             let key = std::env::var("ANTHROPIC_API_KEY")
                 .context("ANTHROPIC_API_KEY env var not set (required for `api` backend)")?;
-            Ok(Arc::new(
-                ApiBackend::with_options(
-                    key,
-                    &cfg.claude.model,
-                    cfg.claude.max_tokens,
-                    cfg.claude.temperature,
-                    cfg.claude.top_p,
-                ),
-            ))
+            Ok(Arc::new(ApiBackend::with_options(
+                key,
+                &cfg.claude.model,
+                cfg.claude.max_tokens,
+                cfg.claude.temperature,
+                cfg.claude.top_p,
+            )))
         }
         BackendKind::ClaudeCode => Ok(Arc::new(
             ClaudeCodeBackend::new(&cfg.claude.claude_code.binary)

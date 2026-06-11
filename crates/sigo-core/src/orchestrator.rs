@@ -190,11 +190,12 @@ impl Orchestrator {
         out: &mut dyn OutputSink,
     ) -> Result<TurnRecord> {
         // Record session metadata on the span so it shows up in structured logs.
-        Span::current()
-            .record("session_id", tracing::field::display(self.session_id));
+        Span::current().record("session_id", tracing::field::display(self.session_id));
         Span::current().record("turn_index", self.turn_index);
-        Span::current()
-            .record("control_mode", tracing::field::display(self.config.control_mode));
+        Span::current().record(
+            "control_mode",
+            tracing::field::display(self.config.control_mode),
+        );
 
         let turn_started = Instant::now();
         let mut errors: Vec<String> = vec![];

@@ -209,10 +209,7 @@ fn runner_command(workdir: &Path, runner: &Path) -> Command {
         if sandbox_exec_works() {
             let profile = sandbox_profile(workdir);
             let mut c = Command::new("sandbox-exec");
-            c.arg("-p")
-                .arg(&profile)
-                .arg("python3")
-                .arg(runner);
+            c.arg("-p").arg(&profile).arg("python3").arg(runner);
             return c;
         }
         let mut c = Command::new("python3");

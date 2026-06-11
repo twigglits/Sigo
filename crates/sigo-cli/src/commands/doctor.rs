@@ -52,10 +52,7 @@ pub async fn run(config: &SigoConfig) -> Result<()> {
         "python3 available (for --eval coding)",
         check_python3().await,
     );
-    all_ok &= check(
-        "eval sandbox",
-        check_eval_sandbox().await,
-    );
+    all_ok &= check("eval sandbox", check_eval_sandbox().await);
     all_ok &= check(
         "log path writable",
         check_log_writable(&config.resolved_log_path()).await,
