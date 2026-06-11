@@ -1,0 +1,108 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="380" viewBox="0 0 760 380" role="img" aria-label="Sigo round trip: an English prompt is translated to Chinese locally, Claude answers in Chinese, and the answer comes back as English.">
+  <title>Sigo: English → 中文 → Claude → 中文 → English</title>
+  <style>
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", "Noto Sans Mono CJK SC", monospace; }
+    .scene * { animation-duration: 14s; animation-iteration-count: infinite; animation-fill-mode: both; }
+
+    /* typewriter reveals: clip-path window + opacity gate */
+    .l1 { animation-name: l1; }
+    .l2 { animation-name: l2; }
+    .l3 { animation-name: l3; }
+    .l4 { animation-name: l4; }
+    @keyframes l1 {
+      0%, 1.9% { opacity: 0; clip-path: inset(0 100% 0 0); }
+      2%      { opacity: 1; clip-path: inset(0 100% 0 0); animation-timing-function: steps(32, end); }
+      12%, 100% { opacity: 1; clip-path: inset(0 -2% 0 0); }
+    }
+    @keyframes l2 {
+      0%, 16.9% { opacity: 0; clip-path: inset(0 100% 0 0); }
+      17%      { opacity: 1; clip-path: inset(0 100% 0 0); animation-timing-function: steps(17, end); }
+      27%, 100% { opacity: 1; clip-path: inset(0 -2% 0 0); }
+    }
+    @keyframes l3 {
+      0%, 31.9% { opacity: 0; clip-path: inset(0 100% 0 0); }
+      32%      { opacity: 1; clip-path: inset(0 100% 0 0); animation-timing-function: steps(22, end); }
+      44%, 100% { opacity: 1; clip-path: inset(0 -2% 0 0); }
+    }
+    /* the English answer starts while the Chinese is still streaming —
+       that's how the sentence-buffer transformer actually behaves */
+    @keyframes l4 {
+      0%, 40.9% { opacity: 0; clip-path: inset(0 100% 0 0); }
+      41%      { opacity: 1; clip-path: inset(0 100% 0 0); animation-timing-function: steps(30, end); }
+      56%, 100% { opacity: 1; clip-path: inset(0 -2% 0 0); }
+    }
+
+    /* step labels fade in */
+    .a1 { animation-name: a1; } .a2 { animation-name: a2; } .a3 { animation-name: a3; } .ft { animation-name: ft; }
+    @keyframes a1 { 0%, 12.5% { opacity: 0; } 15.5%, 100% { opacity: 1; } }
+    @keyframes a2 { 0%, 27.5% { opacity: 0; } 30.5%, 100% { opacity: 1; } }
+    @keyframes a3 { 0%, 37%   { opacity: 0; } 40%,   100% { opacity: 1; } }
+    @keyframes ft { 0%, 58%   { opacity: 0; } 61%,   100% { opacity: 1; } }
+
+    /* whole scene fades out at the end of each loop */
+    .scene { animation: scene 14s linear infinite both; }
+    @keyframes scene { 0%, 94% { opacity: 1; } 99%, 100% { opacity: 0; } }
+
+    /* blinking cursor: tracks the first line's typing (same step function
+       as the reveal), then disappears */
+    .curwin { animation-name: curwin, curmove; }
+    @keyframes curwin { 0%, 13% { opacity: 1; } 13.1%, 100% { opacity: 0; } }
+    @keyframes curmove {
+      0%, 1.9% { transform: translateX(0); }
+      2%      { transform: translateX(0); animation-timing-function: steps(31, end); }
+      12%, 100% { transform: translateX(272px); }
+    }
+    .curwin .blink { animation: blink 0.9s steps(1, end) infinite; }
+    @keyframes blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
+
+    /* reduced motion: show the finished transcript statically
+       (hidden states live only in keyframes, so disabling animation reveals everything) */
+    @media (prefers-reduced-motion: reduce) {
+      .scene, .scene *, .blink { animation: none !important; }
+      .curwin { opacity: 0; }
+    }
+  </style>
+
+  <!-- terminal card -->
+  <rect x="1" y="1" width="758" height="378" rx="12" fill="#0d1117" stroke="#30363d" stroke-width="2"/>
+  <circle cx="26" cy="26" r="6" fill="#ff5f56"/>
+  <circle cx="48" cy="26" r="6" fill="#ffbd2e"/>
+  <circle cx="70" cy="26" r="6" fill="#27c93f"/>
+  <text class="mono" x="380" y="31" font-size="13" fill="#8b949e" text-anchor="middle">sigo · English ⇄ 中文 ⇄ Claude</text>
+  <line x1="1" y1="48" x2="759" y2="48" stroke="#30363d" stroke-width="1"/>
+
+  <g class="scene">
+    <!-- 1) English prompt -->
+    <text class="mono l1" x="36" y="92" font-size="15" fill="#e6edf3"><tspan fill="#7ee787">» </tspan>Explain Rust's borrow checker.</text>
+    <g class="curwin"><text class="mono blink" x="40" y="92" font-size="15" fill="#7ee787">▌</text></g>
+
+    <!-- EN→ZH -->
+    <g class="a1">
+      <text class="mono" x="52" y="126" font-size="13" fill="#d29922">↓ EN→ZH · local translator (qwen / gemma) · terse 简练书面语</text>
+    </g>
+
+    <!-- 2) Chinese prompt -->
+    <text class="mono l2" x="36" y="162" font-size="15" fill="#79c0ff">解释Rust借用检查器的工作原理。</text>
+
+    <!-- → Claude -->
+    <g class="a2">
+      <text class="mono" x="52" y="196" font-size="13" fill="#d97757">↓ Claude · Chinese in, Chinese out</text>
+    </g>
+
+    <!-- 3) Chinese answer -->
+    <text class="mono l3" x="36" y="232" font-size="15" fill="#d2a8ff">借用检查器在编译时强制执行所有权和借用规则。</text>
+
+    <!-- ZH→EN -->
+    <g class="a3">
+      <text class="mono" x="52" y="266" font-size="13" fill="#d29922">↓ ZH→EN · local translator · streamed sentence by sentence</text>
+    </g>
+
+    <!-- 4) English answer -->
+    <text class="mono l4" x="36" y="302" font-size="15" fill="#e6edf3">The borrow checker enforces ownership and borrowing rules at compile time.</text>
+
+    <!-- turn footer -->
+    <g class="ft">
+      <text class="mono" x="36" y="344" font-size="13" fill="#57ab5a">[turn 0 · 1873 ms · ZH-in 19 reported vs EN-proxy 6 local]</text>
+    </g>
+  </g>
+</svg>

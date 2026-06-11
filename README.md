@@ -2,6 +2,10 @@
 
 [![CI](https://github.com/twigglits/Sigo/actions/workflows/ci.yml/badge.svg)](https://github.com/twigglits/Sigo/actions/workflows/ci.yml)
 
+<p align="center">
+  <img src="assets/sigo-flow.svg" width="760" height="380" alt="Animated demo of a Sigo turn: an English prompt is translated to Chinese by a local model, Claude answers in Chinese, and the answer streams back as English, ending with the per-turn token footer.">
+</p>
+
 Sino-Anglo translation layer for Claude. Sigo routes your English prompt through a
 local Ollama translator (Qwen / Gemma 3) into Chinese, sends the Chinese to Claude
 (Anthropic API or the local `claude` CLI), and streams the Chinese answer back
@@ -144,7 +148,7 @@ sigo
 Type English, get English. The turn footer shows the per-turn latency, the
 input tokens Claude reported for the Chinese prompt, and a local `o200k_base`
 proxy count for the English baseline — e.g.
-`[turn 0 · 1873 ms · ZH-in 41 reported vs EN-proxy 27 local]`. Sigo shows the
+`[turn 0 · 1873 ms · ZH-in 19 reported vs EN-proxy 6 local]`. Sigo shows the
 two counts side by side rather than inventing a single "savings" number.
 
 ### Subcommands
