@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use eventsource_stream::Eventsource;
 use futures::{stream::BoxStream, StreamExt};
 use serde::{Deserialize, Serialize};
@@ -201,6 +202,7 @@ struct AccumulatedUsage {
     stop_reason: Option<String>,
 }
 
+#[async_trait]
 impl ClaudeBackend for ApiBackend {
     async fn stream_turn(
         &self,

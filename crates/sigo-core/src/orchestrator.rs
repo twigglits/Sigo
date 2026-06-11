@@ -747,6 +747,7 @@ mod tests {
         struct Sleepy {
             d: Duration,
         }
+        #[async_trait::async_trait]
         impl Translator for Sleepy {
             async fn translate(&self, text: &str, dir: Direction) -> Result<String> {
                 tokio::time::sleep(self.d).await;

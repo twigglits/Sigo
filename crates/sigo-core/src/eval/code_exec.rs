@@ -6,8 +6,11 @@ use tokio::process::Command;
 
 /// In-process Python hardening prepended to every runner. Best-effort: it nulls the
 /// common shell/file/exec entry points and caps address space so a buggy or hostile
-/// solution can't trivially trash the host or OOM a long run. The real network +
-/// filesystem isolation comes from bubblewrap when available; this is defense in depth.
+/// solution can't trivially trash the host or OOM a long run.
+///
+/// On Linux, bubblewrap provides additional network + filesystem isolation when
+/// available. On macOS / Windows (and Linux without bwrap), this preamble is the
+/// primary sandbox — it is always active regardless of platform or bwrap status.
 const SANDBOX_PREAMBLE: &str = r#"# --- sigo sandbox preamble ---
 import sys as _sys
 try:

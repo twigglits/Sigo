@@ -6,6 +6,7 @@
 
 use crate::conversation::Direction;
 use crate::error::Result;
+use async_trait::async_trait;
 
 /// Test/bench stub translator with programmable responses.
 pub mod fakes;
@@ -19,6 +20,7 @@ pub mod prompts;
 pub mod sanitize;
 
 /// Bidirectional EN↔ZH translator.
+#[async_trait]
 pub trait Translator: Send + Sync {
     /// Translate `text` in the given direction.
     async fn translate(&self, text: &str, dir: Direction) -> Result<String>;

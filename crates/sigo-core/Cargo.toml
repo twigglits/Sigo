@@ -10,6 +10,7 @@ default = []
 live = []
 
 [dependencies]
+async-trait.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
 tokio.workspace = true

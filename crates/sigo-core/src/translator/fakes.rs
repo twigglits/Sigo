@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
@@ -58,6 +59,7 @@ impl Default for FakeTranslator {
     }
 }
 
+#[async_trait]
 impl Translator for FakeTranslator {
     async fn translate(&self, text: &str, dir: Direction) -> Result<String> {
         let map = match dir {
