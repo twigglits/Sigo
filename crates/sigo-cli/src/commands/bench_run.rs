@@ -15,6 +15,8 @@ use sigo_core::{
 
 use crate::repl::build_backend;
 
+/// Options for a benchmark run.
+#[allow(missing_docs)]
 pub struct RunOptions {
     pub corpus_path: Option<PathBuf>,
     pub label: Option<String>,
@@ -27,9 +29,12 @@ pub struct RunOptions {
     pub json: bool,
 }
 
+/// Builder for translator instances (lazy, so the test suite can inject fakes).
 pub type TranslatorBuilder = Arc<dyn Fn() -> Arc<dyn Translator> + Send + Sync>;
+/// Builder for backend instances (lazy, so the test suite can inject fakes).
 pub type BackendBuilder = Arc<dyn Fn() -> Result<Arc<dyn ClaudeBackend>> + Send + Sync>;
 
+/// Run a benchmark from config and options.
 pub async fn run(cfg: &SigoConfig, opts: RunOptions) -> Result<()> {
     // Validate backend early so a typo doesn't slip through builders.
     let backend_kind = parse_backend_kind(&cfg.claude.backend)?;
@@ -50,6 +55,10 @@ pub async fn run(cfg: &SigoConfig, opts: RunOptions) -> Result<()> {
     run_with_builders(cfg, opts, translator_builder, backend_builder).await
 }
 
+/// Drive a corpus of prompts through the orchestrator and write a report.
+///
+/// Accepts builder closures for translator and backend so the test suite can
+/// inject fake implementations.
 pub async fn run_with_builders(
     cfg: &SigoConfig,
     opts: RunOptions,

@@ -7,6 +7,11 @@ version = "0.2.0"
 edition = "2021"
 rust-version = "1.88"
 license = "MIT"
+description = "Sino-Anglo translation layer for Claude — EN→ZH→Claude→EN with token-minimization and objective coding benchmarks"
+homepage = "https://github.com/twigglits/Sigo"
+repository = "https://github.com/twigglits/Sigo"
+keywords = ["claude", "translation", "ollama", "benchmark", "token-optimization"]
+categories = ["command-line-utilities", "development-tools::testing"]
 
 [workspace.dependencies]
 async-trait = "0.1"

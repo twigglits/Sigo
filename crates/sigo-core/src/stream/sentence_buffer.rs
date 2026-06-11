@@ -1,9 +1,26 @@
+//! Streaming response segmentation: splits Claude's ZH response into sentence
+//! and code-fence segments for concurrent ZH→EN translation.
+
+/// A segment of the streamed response: either natural-language text (to be
+/// translated) or a code fence (to pass through verbatim).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Segment {
-    /// Natural-language text that should be translated.
+    /// Natural-language text that should be translated ZH→EN.
     Text(String),
-    /// Code blocks or other raw passthrough content that must NOT be translated.
+    /// Code blocks or other raw content that must NOT be translated.
     Passthrough(String),
+}
+
+/// State machine that segments a streaming response by sentence boundaries
+/// and code fences.
+///
+/// Sentences are emitted on CJK terminators (`。！？`), ASCII `!`/`?`+whitespace,
+/// or paragraph breaks (`\n\n`). Code fences (` ```…``` `) are collected as
+/// passthrough segments and never translated.
+pub struct SentenceBuffer {
+    state: State,
+    text_buf: String,
+    code_buf: String,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -12,13 +29,8 @@ enum State {
     Code,
 }
 
-pub struct SentenceBuffer {
-    state: State,
-    text_buf: String,
-    code_buf: String,
-}
-
 impl SentenceBuffer {
+    /// Create a new empty buffer.
     pub fn new() -> Self {
         Self {
             state: State::Text,
@@ -27,8 +39,8 @@ impl SentenceBuffer {
         }
     }
 
-    /// Push streamed input and return any complete segments ready for downstream processing.
-    /// Segments are returned in arrival order.
+    /// Push streamed input and return any complete segments ready for downstream
+    /// processing. Segments are returned in arrival order.
     pub fn push(&mut self, chunk: &str) -> Vec<Segment> {
         let mut out = Vec::new();
         for ch in chunk.chars() {
@@ -41,7 +53,7 @@ impl SentenceBuffer {
     }
 
     /// Flush any remaining buffered content at the end of a stream.
-    /// An unclosed code fence at stream end is emitted as Passthrough.
+    /// An unclosed code fence at stream end is emitted as [`Segment::Passthrough`].
     pub fn flush(&mut self) -> Vec<Segment> {
         let mut out = Vec::new();
         match self.state {
@@ -88,7 +100,6 @@ impl SentenceBuffer {
 
         // ASCII !/? followed by whitespace — emit on the whitespace, retaining the whitespace.
         if matches!(ch, ' ' | '\n' | '\t') {
-            // The whitespace is the most recent char in text_buf; look at the one before it.
             let mut iter = self.text_buf.chars().rev();
             let _ws = iter.next();
             if let Some(prev) = iter.next() {

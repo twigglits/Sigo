@@ -1,11 +1,21 @@
+//! The per-turn record structure used for benchmark logging and analysis.
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::conversation::BackendKind;
 
+/// Current schema version for turn records. Incremented on structural changes
+/// to [`TurnRecord`] fields.
 pub const SCHEMA_VERSION: u32 = 2;
 
+/// A complete record of one turn through the Sigo pipeline.
+///
+/// Captures the English prompt, the Chinese bridge text, Claude's response,
+/// local proxy token counts, Claude's reported usage, timing, and optional
+/// English control-arm data.
+#[allow(missing_docs)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TurnRecord {
     pub schema_version: u32,
@@ -27,10 +37,6 @@ pub struct TurnRecord {
     /// `chinese_prompt`/`chinese_prompt_tokens_local` reflect what was actually
     /// sent. Equal values mean compaction changed nothing (or was skipped by
     /// the never-worse guard).
-    ///
-    /// Additive-field policy: new fields enter with `#[serde(default)]` so
-    /// older JSONL rows keep deserializing without a SCHEMA_VERSION bump; the
-    /// version bumps only on structural or semantic changes to existing fields.
     #[serde(default)]
     pub chinese_prompt_tokens_precompact_local: u32,
     pub chinese_response_tokens_local: u32,
@@ -56,6 +62,8 @@ pub struct TurnRecord {
     pub turn_total_ms: u64,
 }
 
+/// Result of the English control arm (parallel direct-EN run for comparison).
+#[allow(missing_docs)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EnglishControlRun {
     pub english_response: String,

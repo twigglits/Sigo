@@ -1,3 +1,5 @@
+//! Per-run report generation (markdown, CSV) and category aggregation.
+#![allow(missing_docs)]
 use crate::benchmark::TurnRecord;
 use crate::conversation::BackendKind;
 use chrono::{DateTime, Utc};

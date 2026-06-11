@@ -1,7 +1,10 @@
+//! Full setup verification (doctor subcommand).
+
 use anyhow::Result;
 use sigo_core::{SigoConfig, Tokenizer, TokenizerProxy};
 use std::time::Duration;
 
+/// Run the `doctor` connectivity/setup check.
 pub async fn run(config: &SigoConfig) -> Result<()> {
     let mut all_ok = true;
 

@@ -134,20 +134,29 @@ fn runner_command(workdir: &Path, runner: &Path) -> Command {
     }
 }
 
+/// Result of executing a model-generated solution against its test suite.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Outcome {
+    /// All tests passed.
     Pass,
+    /// Code compiled/ran but an assertion failed.
     AssertFail,
+    /// The generated code had a syntax error (SyntaxError, IndentationError, TabError).
     CompileError,
+    /// Execution timed out.
     Timeout,
+    /// A non-specific runtime error occurred.
     RuntimeError,
+    /// No code block could be extracted from the model's answer.
     NoCodeExtracted,
 }
 
 impl Outcome {
+    /// Whether this outcome counts as a passing result.
     pub fn is_pass(&self) -> bool {
         matches!(self, Outcome::Pass)
     }
+    /// Short machine-readable label for this outcome.
     pub fn label(&self) -> &'static str {
         match self {
             Outcome::Pass => "pass",

@@ -1,3 +1,5 @@
+//! Load prompt corpora from JSONL or plain-text files.
+#![allow(missing_docs)]
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use thiserror::Error;

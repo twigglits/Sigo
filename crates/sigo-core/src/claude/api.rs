@@ -43,6 +43,18 @@ fn backoff_delay(attempt: u32) -> Duration {
     Duration::from_millis((250u64.saturating_mul(1u64 << shift)).min(8000))
 }
 
+/// Anthropic Messages API backend.
+///
+/// Streams conversation turns over HTTPS using the Anthropic Messages API with
+/// SSE event parsing. Supports automatic retry with exponential backoff on
+/// transient errors (connect/timeout, 429, 5xx) and surfaces
+/// [`SigoError::Auth`] on 401/403.
+///
+/// # Retry behaviour
+///
+/// Only the pre-stream `send()` is retried (up to [`MAX_ATTEMPTS`]) — once
+/// response bytes arrive the stream is consumed as-is. Rate limits (429) surface
+/// [`SigoError::RateLimited`] with the parsed `Retry-After` header.
 #[derive(Debug, Clone)]
 pub struct ApiBackend {
     client: reqwest::Client,
@@ -53,6 +65,10 @@ pub struct ApiBackend {
 }
 
 impl ApiBackend {
+    /// Create a new API backend.
+    ///
+    /// `api_key` is an Anthropic API key (`sk-...`). `model` is the Claude model
+    /// name (e.g. `"claude-sonnet-4-6"`). `max_tokens` is the generation limit.
     pub fn new(api_key: impl Into<String>, model: impl Into<String>, max_tokens: u32) -> Self {
         let client = reqwest::Client::builder()
             .connect_timeout(CONNECT_TIMEOUT)
@@ -68,6 +84,8 @@ impl ApiBackend {
         }
     }
 
+    /// Override the default Anthropic API base URL (for proxies, mirrors, or
+    /// self-hosted endpoints).
     pub fn with_base_url(mut self, base_url: impl Into<String>) -> Self {
         self.base_url = base_url.into();
         self

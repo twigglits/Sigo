@@ -10,19 +10,27 @@ use crate::error::{Result, SigoError};
 /// One item in a scripted turn — either a happy-path chunk or an error to inject.
 #[derive(Clone)]
 pub enum ScriptedItem {
+    /// Emit a normal chunk to the consumer.
     Chunk(ResponseChunk),
+    /// Yield an error to the consumer, simulating a mid-stream failure.
     Error(String),
 }
 
 /// Queue of scripted turns; each turn is a list of timed scripted items.
 type ScriptQueue = Arc<Mutex<Vec<Vec<(ScriptedItem, Duration)>>>>;
 
+/// Fake [`ClaudeBackend`] for tests.
+///
+/// Scripted responses can be enqueued per-turn. Each call to `stream_turn` pops
+/// the next script and replays its chunks/errors in order. The prompts passed to
+/// each call are recorded for assertion.
 pub struct FakeBackend {
     scripts: ScriptQueue,
     sent_prompts: Arc<Mutex<Vec<String>>>,
 }
 
 impl FakeBackend {
+    /// Create a new fake backend with no scripts enqueued.
     pub fn new() -> Self {
         Self {
             scripts: Arc::new(Mutex::new(vec![])),
@@ -30,17 +38,20 @@ impl FakeBackend {
         }
     }
 
-    /// Prompts passed to `stream_turn`, in call order (control-run calls included).
+    /// All prompts passed to `stream_turn`, in call order (including control-run calls).
     pub fn sent_prompts(&self) -> Vec<String> {
         self.sent_prompts.lock().unwrap().clone()
     }
 
-    /// Queue an arbitrary scripted turn (chunks + optional injected errors).
+    /// Queue an arbitrary scripted turn with per-chunk delays.
+    ///
+    /// Each call to `stream_turn` pops one turn from the queue. Each item in the
+    /// turn is one [`ScriptedItem`] with a [`Duration`] delay before emission.
     pub fn enqueue_scripted(&self, items: Vec<(ScriptedItem, Duration)>) {
         self.scripts.lock().unwrap().push(items);
     }
 
-    /// Backwards-compatible: queue a turn of just chunks (no errors).
+    /// Queue a turn consisting of only [`ResponseChunk`] items (no injected errors).
     pub fn enqueue_turn(&self, chunks: Vec<(ResponseChunk, Duration)>) {
         let items = chunks
             .into_iter()
@@ -49,7 +60,10 @@ impl FakeBackend {
         self.enqueue_scripted(items);
     }
 
-    /// Convenience: enqueue a single-text-then-done response.
+    /// Convenience: enqueue a single-text-then-done response with no delays.
+    ///
+    /// Creates a turn that emits one [`ResponseChunk::TextDelta`] followed by
+    /// a [`ResponseChunk::Done`] with the given [`Usage`].
     pub fn enqueue_simple(&self, text: &str, usage: Usage) {
         self.enqueue_turn(vec![
             (
@@ -66,7 +80,9 @@ impl FakeBackend {
         ]);
     }
 
-    /// Convenience: enqueue a turn that yields one chunk then an error mid-stream.
+    /// Convenience: enqueue a turn that yields one text chunk then an error mid-stream.
+    ///
+    /// Useful for testing the orchestrator's error-recovery behaviour.
     pub fn enqueue_error_after_chunk(&self, text: &str, error_msg: &str) {
         self.enqueue_scripted(vec![
             (

@@ -1,3 +1,5 @@
+//! JSONL-based benchmark sink for persistent turn recording.
+#![allow(missing_docs)]
 use std::fs::OpenOptions;
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};

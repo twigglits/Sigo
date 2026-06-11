@@ -1,32 +1,54 @@
+//! Configuration types and loading with layered precedence.
+//!
+//! Precedence (low → high):
+//! 1. Built-in defaults
+//! 2. `$XDG_CONFIG_HOME/sigo/config.toml`
+//! 3. `./sigo.toml` (or `--config <path>`)
+//! 4. `SIGO_*` environment variables
+//! 5. CLI flags (applied by the CLI layer, not here)
+
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 use crate::error::{Result, SigoError};
 
+/// Top-level configuration. All sub-configs have [`Default`] so partial TOML
+/// files are merged over the built-in defaults.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SigoConfig {
+    /// Translator (Ollama) settings.
     #[serde(default)]
     pub translator: TranslatorConfig,
+    /// Claude backend settings.
     #[serde(default)]
     pub claude: ClaudeConfig,
+    /// Benchmark control and logging.
     #[serde(default)]
     pub benchmark: BenchmarkConfig,
+    /// REPL behaviour.
     #[serde(default)]
     pub repl: ReplConfig,
+    /// Dollar-per-million-token rates for cost computation.
     #[serde(default)]
     pub pricing: PricingConfig,
 }
 
+/// Local translator (Ollama) configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TranslatorConfig {
+    /// Provider name (currently only `"ollama"`).
     #[serde(default = "default_translator_provider")]
     pub provider: String,
+    /// Ollama API endpoint, e.g. `"http://localhost:11434"`.
     #[serde(default = "default_ollama_endpoint")]
     pub endpoint: String,
+    /// Model name, e.g. `"qwen2.5:7b"`.
     #[serde(default = "default_translator_model")]
     pub model: String,
+    /// Per-request timeout in seconds.
     #[serde(default = "default_translator_timeout")]
     pub timeout_seconds: u64,
+    /// Translation style (terse minimizes tokens; fluent is the baseline).
     #[serde(default)]
     pub style: TranslatorStyle,
 }
@@ -54,52 +76,74 @@ impl TranslatorStyle {
     }
 }
 
+/// Claude backend configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClaudeConfig {
+    /// Backend kind: `"api"` or `"claude-code"`.
     #[serde(default = "default_claude_backend")]
     pub backend: String,
+    /// Model name, e.g. `"claude-sonnet-4-6"`.
     #[serde(default = "default_claude_model")]
     pub model: String,
+    /// Maximum output tokens per turn.
     #[serde(default = "default_claude_max_tokens")]
     pub max_tokens: u32,
+    /// Claude Code CLI-specific settings.
     #[serde(default)]
     pub claude_code: ClaudeCodeConfig,
 }
 
+/// Claude Code CLI sub-process configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClaudeCodeConfig {
+    /// Path or name of the `claude` CLI binary.
     #[serde(default = "default_claude_code_binary")]
     pub binary: String,
+    /// Extra CLI arguments passed on every invocation.
     #[serde(default)]
     pub extra_args: Vec<String>,
 }
 
+/// Benchmark logging and control-arm configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BenchmarkConfig {
+    /// Override for the JSONL log path. Defaults to `$XDG_DATA_HOME/sigo/turns.jsonl`.
     #[serde(default)]
     pub log_path: Option<PathBuf>,
+    /// Control mode: `"off"`, `"prompt-only"`, or `"full"`.
     #[serde(default = "default_control_mode")]
     pub control_mode: String,
+    /// Seed for bootstrap CI reproducibility in eval reports.
     #[serde(default = "default_bootstrap_seed")]
     pub bootstrap_seed: u64,
 }
 
+/// REPL behaviour.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ReplConfig {
+    /// Show verbose turn footers (ZH bridge + token panel).
     #[serde(default)]
     pub verbose: bool,
+    /// Override for the readline history file path.
     #[serde(default)]
     pub history_file: Option<PathBuf>,
 }
 
+/// Dollar-per-million-token rates for cost computation.
+///
+/// Defaults match Sonnet list price; override for other models or negotiated rates.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PricingConfig {
+    /// $/M input tokens.
     #[serde(default = "default_input_per_mtok")]
     pub input_per_mtok: f64,
+    /// $/M output tokens.
     #[serde(default = "default_output_per_mtok")]
     pub output_per_mtok: f64,
+    /// $/M cache read tokens.
     #[serde(default = "default_cache_read_per_mtok")]
     pub cache_read_per_mtok: f64,
+    /// $/M cache write tokens.
     #[serde(default = "default_cache_write_per_mtok")]
     pub cache_write_per_mtok: f64,
 }
@@ -240,6 +284,7 @@ impl SigoConfig {
         })
     }
 
+    /// Resolved readline history file path.
     pub fn resolved_history_path(&self) -> PathBuf {
         self.repl.history_file.clone().unwrap_or_else(|| {
             let data = dirs::data_dir().unwrap_or_else(|| PathBuf::from("."));
@@ -361,7 +406,6 @@ mod tests {
         let c: SigoConfig = toml::from_str(toml).unwrap();
         assert_eq!(c.translator.model, "qwen3:14b");
         assert_eq!(c.claude.backend, "claude-code");
-        // defaults preserved for unspecified fields
         assert_eq!(c.translator.endpoint, "http://localhost:11434");
     }
 
@@ -422,7 +466,6 @@ mod tests {
         )
         .unwrap();
         assert!((c2.pricing.input_per_mtok - 15.0).abs() < 1e-9);
-        // unset cache rates keep their defaults
         assert!((c2.pricing.cache_read_per_mtok - 0.30).abs() < 1e-9);
     }
 
@@ -440,7 +483,6 @@ mod tests {
         merge_into(&mut merged, overlay);
         let cfg: SigoConfig = merged.try_into().unwrap();
         assert_eq!(cfg.translator.model, "qwen3:14b");
-        // The unset field should still hold the default:
         assert_eq!(cfg.claude.backend, "api");
         assert_eq!(cfg.translator.endpoint, "http://localhost:11434");
     }
@@ -469,8 +511,6 @@ mod tests {
 
     #[test]
     fn layered_config_applies_defaults_xdg_top_env_in_order() {
-        // Simulates the --config path: an XDG base layer, a top file (the named --config),
-        // and an env overlay — proving the named file does NOT discard the XDG layer.
         let xdg: toml::Value = toml::from_str(
             "[claude]\nbackend = \"claude-code\"\n[translator]\nmodel = \"from-xdg\"",
         )
@@ -478,10 +518,10 @@ mod tests {
         let top: toml::Value = toml::from_str("[translator]\nmodel = \"from-top\"").unwrap();
         let env = |k: &str| (k == "SIGO_CLAUDE_MODEL").then(|| "from-env".to_string());
         let cfg = layered_config(vec![xdg, top], env).unwrap();
-        assert_eq!(cfg.claude.backend, "claude-code"); // from XDG — survives under the top file
-        assert_eq!(cfg.translator.model, "from-top"); // top file overrides XDG
-        assert_eq!(cfg.claude.model, "from-env"); // env overrides every file
-        assert_eq!(cfg.translator.endpoint, "http://localhost:11434"); // default preserved
+        assert_eq!(cfg.claude.backend, "claude-code");
+        assert_eq!(cfg.translator.model, "from-top");
+        assert_eq!(cfg.claude.model, "from-env");
+        assert_eq!(cfg.translator.endpoint, "http://localhost:11434");
     }
 
     #[test]

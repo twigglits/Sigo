@@ -1,3 +1,5 @@
+//! HumanEval-format coding task corpus loading.
+#![allow(missing_docs)]
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 

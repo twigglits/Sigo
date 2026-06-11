@@ -10,22 +10,31 @@ use crate::eval::metrics::{bootstrap_ci_mean, pct_delta, wilson_ci, win_rate, Ar
 /// One arm's result for one task.
 #[derive(Debug, Clone, Copy)]
 pub struct ArmEval {
+    /// Execution outcome.
     pub outcome: Outcome,
+    /// Token cost for this arm.
     pub cost: ArmCost,
+    /// Local proxy token count (o200k_base).
     pub proxy_in: u32,
 }
 
 /// Paired EN/ZH result for one task.
 #[derive(Debug, Clone)]
 pub struct TaskEval {
+    /// Unique task identifier.
     pub task_id: String,
+    /// Task category for grouping.
     pub category: String,
+    /// English (direct) arm result.
     pub en: ArmEval,
+    /// Chinese bridge arm result.
     pub zh: ArmEval,
+    /// Round-trip fidelity score, if measured (0–10).
     pub fidelity: Option<u8>,
 }
 
 /// A layer's paired comparison (mean delta % with bootstrap CI + win-rate).
+#[allow(missing_docs)]
 #[derive(Debug, Clone, Serialize)]
 pub struct LayerStat {
     pub mean_en: f64,
@@ -36,6 +45,8 @@ pub struct LayerStat {
     pub win_rate: f64,
 }
 
+/// Pass-rate statistics with Wilson 95% confidence interval.
+#[allow(missing_docs)]
 #[derive(Debug, Clone, Serialize)]
 pub struct PassStat {
     pub passes: usize,
@@ -45,6 +56,8 @@ pub struct PassStat {
     pub ci_hi: f64,
 }
 
+/// Aggregated summary of a paired coding evaluation run.
+#[allow(missing_docs)]
 #[derive(Debug, Clone, Serialize)]
 pub struct EvalSummary {
     pub n: usize,
@@ -55,8 +68,8 @@ pub struct EvalSummary {
     pub zh_pass: PassStat,
     pub en_cost_per_pass: f64,
     pub zh_cost_per_pass: f64,
-    pub cost_per_pass_ratio: f64, // ZH cost-per-pass / EN cost-per-pass
-    pub cost_per_pass_ci: (f64, f64), // bootstrap 95% CI of that ratio
+    pub cost_per_pass_ratio: f64,
+    pub cost_per_pass_ci: (f64, f64),
     pub failure_modes_en: BTreeMap<String, usize>,
     pub failure_modes_zh: BTreeMap<String, usize>,
     pub fidelity_mean: Option<f64>,
@@ -157,6 +170,10 @@ fn cost_per_pass_ratio_ci(
     (point, (lo, hi))
 }
 
+/// Aggregate paired task results into an [`EvalSummary`] with bootstrap CIs.
+///
+/// Computes three layers (proxy input, reported input, marginal dollars) and
+/// pass-rate statistics per arm. Bootstrap CIs use `seed` for reproducibility.
 pub fn summarize_eval(tasks: &[TaskEval], pricing: &PricingConfig, seed: u64) -> EvalSummary {
     let en_proxy: Vec<f64> = tasks.iter().map(|t| t.en.proxy_in as f64).collect();
     let zh_proxy: Vec<f64> = tasks.iter().map(|t| t.zh.proxy_in as f64).collect();
@@ -230,6 +247,10 @@ fn verdict(ci_lo: f64, ci_hi: f64) -> &'static str {
     }
 }
 
+/// Render the eval summary as a markdown report.
+///
+/// Includes a headline comparison table, correctness summary, failure-mode
+/// breakdown, round-trip fidelity (if measured), and caveats.
 pub fn build_eval_markdown(
     run_id: &str,
     backend: &str,
@@ -368,6 +389,9 @@ pub fn build_eval_markdown(
     o
 }
 
+/// Render the eval results as CSV (one row per arm per task).
+///
+/// Columns: `task_id,category,arm,outcome,proxy_in,reported_in,output,cache_read,cache_write,marginal_dollars,billed_dollars,fidelity`
 pub fn build_eval_csv(tasks: &[TaskEval], pricing: &PricingConfig) -> String {
     let mut o = String::new();
     o.push_str("task_id,category,arm,outcome,proxy_in,reported_in,output,cache_read,cache_write,marginal_dollars,billed_dollars,fidelity\n");

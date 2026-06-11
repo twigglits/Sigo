@@ -1,3 +1,6 @@
+//! `o200k_base` BPE tokenizer (GPT-4o) used as an offline proxy for Claude's
+//! non-public tokenizer.
+
 use super::Tokenizer;
 use crate::error::Result;
 use tiktoken_rs::CoreBPE;
@@ -9,9 +12,25 @@ pub struct TokenizerProxy {
 }
 
 impl TokenizerProxy {
+    /// Initialise the proxy tokenizer.
+    ///
+    /// Reuses the library's lazily-built singleton so the ~200k-entry BPE table
+    /// is constructed once per process.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the o200k_base BPE cannot be loaded (e.g. missing
+    /// model file in the tiktoken cache).
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use sigo_core::tokenizer::Tokenizer;
+    /// let tk = sigo_core::tokenizer::TokenizerProxy::new().unwrap();
+    /// let n = tk.count_tokens("Hello, world!").unwrap();
+    /// assert!(n > 0);
+    /// ```
     pub fn new() -> Result<Self> {
-        // Reuse the library's lazily-built singleton so the ~200k-entry BPE is
-        // constructed once per process, not once per instance.
         Ok(Self {
             bpe: tiktoken_rs::o200k_base_singleton(),
         })
@@ -41,8 +60,6 @@ mod tests {
 
     #[test]
     fn counts_are_monotonic_in_length() {
-        // Guards the wiring, NOT the ZH-vs-EN hypothesis: do not assume a
-        // direction between languages here — that is what the benchmark measures.
         let t = TokenizerProxy::new().unwrap();
         let short = t.count_tokens("Hi.").unwrap();
         let long = t

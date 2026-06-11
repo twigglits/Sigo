@@ -3,9 +3,13 @@ use crate::config::PricingConfig;
 /// Token usage for one arm of one task.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ArmCost {
+    /// Input tokens reported by the API.
     pub input: u32,
+    /// Output tokens reported by the API.
     pub output: u32,
+    /// Cache read tokens (API backend only).
     pub cache_read: u32,
+    /// Cache write tokens (API backend only).
     pub cache_write: u32,
 }
 
@@ -63,6 +67,7 @@ pub struct Pcg32 {
     inc: u64,
 }
 impl Pcg32 {
+    /// Seed a new PCG32 RNG.
     pub fn new(seed: u64) -> Self {
         let mut r = Self {
             state: 0,
@@ -73,6 +78,7 @@ impl Pcg32 {
         r.next_u32();
         r
     }
+    /// Return the next `u32` in the sequence.
     pub fn next_u32(&mut self) -> u32 {
         let old = self.state;
         self.state = old

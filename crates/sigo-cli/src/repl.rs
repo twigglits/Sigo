@@ -1,19 +1,24 @@
 use anyhow::{Context, Result};
+use indicatif::{ProgressBar, ProgressStyle};
 use rustyline::error::ReadlineError;
 use rustyline::DefaultEditor;
+use std::io::Write;
 use std::sync::Arc;
 use std::time::Duration;
 
 use sigo_core::{
     ApiBackend, BackendKind, BenchmarkSink, ClaudeBackend, ClaudeCodeBackend, ControlMode,
-    JsonlSink, OllamaTranslator, Orchestrator, OrchestratorConfig, SigoConfig, StdoutSink,
-    Tokenizer, TokenizerProxy, Translator,
+    JsonlSink, OllamaTranslator, Orchestrator, OrchestratorConfig, SigoConfig, Tokenizer,
+    TokenizerProxy, Translator,
 };
 
 use crate::display::Display;
 
+/// State preserved across REPL turns.
 pub struct ReplState {
+    /// The orchestrator managing conversation and translation.
     pub orchestrator: Orchestrator,
+    /// Display configuration (verbose mode, etc.).
     pub display: Display,
 }
 
@@ -53,6 +58,7 @@ pub fn build_orchestrator(config: &SigoConfig) -> Result<Orchestrator> {
     Ok(Orchestrator::new(cfg, translator, backend, tokenizer, sink))
 }
 
+/// Run the interactive REPL.
 pub async fn run(config: SigoConfig, verbose: bool) -> Result<()> {
     crate::commands::checks::preflight_translator(&config)
         .await
@@ -84,7 +90,7 @@ pub async fn run(config: SigoConfig, verbose: bool) -> Result<()> {
                         break;
                     }
                 } else {
-                    let mut out = StdoutSink;
+                    let mut out = SpinnerSink::new();
                     match state.orchestrator.run_turn(line, &mut out).await {
                         Ok(record) => state.display.print_turn_footer(&record),
                         Err(e) => eprintln!("turn failed: {e}"),
@@ -101,6 +107,49 @@ pub async fn run(config: SigoConfig, verbose: bool) -> Result<()> {
     }
     let _ = editor.save_history(&history_path);
     Ok(())
+}
+
+/// A sink that displays a spinner until the first chunk of text is written.
+pub struct SpinnerSink {
+    pb: ProgressBar,
+    first_chunk: bool,
+}
+
+impl Default for SpinnerSink {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl SpinnerSink {
+    /// Build a new `SpinnerSink` with the given message prefix.
+    pub fn new() -> Self {
+        let pb = ProgressBar::new_spinner();
+        pb.set_style(
+            ProgressStyle::with_template("{spinner:.green} {msg}")
+                .unwrap()
+                .tick_chars("⠋⠙⠹⠸⠼⠴⠲⠁"),
+        );
+        pb.set_message("Sigo is thinking...");
+        pb.enable_steady_tick(Duration::from_millis(100));
+        Self {
+            pb,
+            first_chunk: true,
+        }
+    }
+}
+
+impl sigo_core::OutputSink for SpinnerSink {
+    fn write(&mut self, s: &str) {
+        if self.first_chunk {
+            self.pb.finish_and_clear();
+            self.first_chunk = false;
+        }
+        let mut out = std::io::stdout().lock();
+        let _ = out.write_all(s.as_bytes());
+        let _ = out.flush();
+    }
+    fn flush(&mut self) {}
 }
 
 async fn handle_slash(rest: &str, state: &mut ReplState, config: &SigoConfig) -> Result<bool> {
@@ -233,6 +282,7 @@ fn print_help() {
     println!("  /bench                      print current-session summary");
 }
 
+/// Parse a backend string (`"api"` or `"claude-code"`) into a [`BackendKind`].
 pub fn parse_backend(s: &str) -> Result<BackendKind> {
     match s {
         "api" => Ok(BackendKind::Api),
@@ -241,6 +291,7 @@ pub fn parse_backend(s: &str) -> Result<BackendKind> {
     }
 }
 
+/// Build a Claude backend from its kind and config.
 pub fn build_backend(kind: BackendKind, cfg: &SigoConfig) -> Result<Arc<dyn ClaudeBackend>> {
     match kind {
         BackendKind::Api => {

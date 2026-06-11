@@ -12,6 +12,17 @@ use super::{ClaudeBackend, ResponseChunk};
 use crate::conversation::{Conversation, Usage};
 use crate::error::{Result, SigoError};
 
+/// Claude Code CLI backend.
+///
+/// Spawns the `claude` CLI process with `-p <prompt> --output-format stream-json`
+/// and parses its NDJSON event stream. Supports session persistence across turns
+/// (the session ID is captured from the `system` event and passed via `--resume`
+/// on subsequent turns).
+///
+/// # Performance
+///
+/// Each turn spawns a new process. The session resume mechanism mitigates cold-start
+/// costs for multi-turn conversations by allowing the CLI to reuse cached context.
 #[derive(Debug, Clone)]
 pub struct ClaudeCodeBackend {
     binary: String,
@@ -21,6 +32,9 @@ pub struct ClaudeCodeBackend {
 }
 
 impl ClaudeCodeBackend {
+    /// Create a new Claude Code backend.
+    ///
+    /// `binary` is the path or name of the `claude` CLI executable on `PATH`.
     pub fn new(binary: impl Into<String>) -> Self {
         Self {
             binary: binary.into(),
@@ -30,11 +44,13 @@ impl ClaudeCodeBackend {
         }
     }
 
+    /// Set extra CLI arguments passed to every `claude` invocation (e.g. `["--dangerously-skip-permissions"]`).
     pub fn with_extra_args(mut self, args: Vec<String>) -> Self {
         self.extra_args = args;
         self
     }
 
+    /// Set the model override. When set, `--model <name>` is passed to the CLI.
     pub fn with_model(mut self, model: impl Into<String>) -> Self {
         self.model = Some(model.into());
         self

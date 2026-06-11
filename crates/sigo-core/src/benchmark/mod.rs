@@ -1,3 +1,21 @@
+//! Benchmark logging, corpus management, and report generation.
+//!
+//! Every turn is recorded via [`BenchmarkSink`] (implemented by [`JsonlSink`]
+//! for persistent storage and [`MemorySink`] for tests). The [`TurnRecord`]
+//! captures local proxy token counts, Claude's reported usage, timing, and
+//! an optional English control run.
+//!
+//! ## Corpus-driven runs
+//!
+//! [`load_corpus`] / [`load_default_corpus`] load prompt collections (JSONL or
+//! plain text). [`build_markdown`] / [`build_csv`] produce per-run reports.
+//! [`summarize`] aggregates across sessions.
+//!
+//! ## Coding benchmark
+//!
+//! [`load_coding_corpus`] / [`load_default_coding_corpus`] load HumanEval-format
+//! tasks for objective code evaluation.
+
 use crate::error::Result;
 
 pub mod coding_corpus;
@@ -16,21 +34,29 @@ pub use run_report::{
 pub use summary::{read_jsonl, summarize, Summary};
 pub use turn_record::{EnglishControlRun, TurnRecord, SCHEMA_VERSION};
 
+/// Persistent store for turn records.
+///
+/// Implementations must be [`Send`] + [`Sync`] and may be called concurrently
+/// from multiple orchestrator instances.
 pub trait BenchmarkSink: Send + Sync {
+    /// Persist one turn record.
     fn record(&self, turn: &TurnRecord) -> Result<()>;
 }
 
-/// In-memory sink for tests.
+/// In-memory sink for tests. Stores records in a [`Mutex`]-guarded [`Vec`].
 pub struct MemorySink {
+    /// All recorded turns, in insertion order.
     pub records: std::sync::Mutex<Vec<TurnRecord>>,
 }
 
 impl MemorySink {
+    /// Create an empty in-memory sink.
     pub fn new() -> Self {
         Self {
             records: std::sync::Mutex::new(vec![]),
         }
     }
+    /// Snapshot of all recorded turns so far.
     pub fn snapshot(&self) -> Vec<TurnRecord> {
         self.records.lock().unwrap().clone()
     }

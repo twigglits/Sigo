@@ -7,8 +7,16 @@ use crate::error::{Result, SigoError};
 use crate::translator::Translator;
 
 /// Scores semantic closeness of two English strings on 0..=10.
+/// Back-translation judge that scores round-trip fidelity.
+///
+/// Uses a local Ollama model to compare the original prompt with its
+/// back-translated form, scoring constraint recall on a 0–10 scale.
 #[async_trait]
 pub trait Judge: Send + Sync {
+    /// Score how well `candidate` preserves the facts/constraints of `original`.
+    ///
+    /// Returns a score 0–10 where 10 means all facts, constraints, numbers,
+    /// names, negations, and instructions survived the round trip.
     async fn score(&self, original: &str, candidate: &str) -> Result<u8>;
 }
 
@@ -104,6 +112,10 @@ struct RespMsg {
 }
 
 impl OllamaJudge {
+    /// Create a new Ollama-based fidelity judge.
+    ///
+    /// The judge uses the same endpoint/model as the translator but with a
+    /// separate client (so its timeout can differ).
     pub fn new(endpoint: impl Into<String>, model: impl Into<String>, timeout: Duration) -> Self {
         let client = reqwest::Client::builder()
             .timeout(timeout)

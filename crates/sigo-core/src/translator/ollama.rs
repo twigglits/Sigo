@@ -7,6 +7,17 @@ use crate::config::TranslatorStyle;
 use crate::conversation::Direction;
 use crate::error::{Result, SigoError};
 
+/// Ollama-based EN↔ZH translator.
+///
+/// Communicates with a local Ollama instance via its `/api/chat` endpoint.
+/// Uses a translate-not-answer protocol with few-shot demonstrations and
+/// structural code masking (fenced blocks and inline code are hidden from the
+/// model via sentinels to prevent answering/altering/dropping code).
+///
+/// ## Determinism
+///
+/// Temperature is pinned to `0.0` with a fixed seed for reproducible
+/// translations. The context window is set to 8192 to avoid silent truncation.
 #[derive(Debug, Clone)]
 pub struct OllamaTranslator {
     client: reqwest::Client,
@@ -77,6 +88,11 @@ struct ResponseMessage {
 }
 
 impl OllamaTranslator {
+    /// Create a new Ollama translator.
+    ///
+    /// `endpoint` is the Ollama server URL (e.g. `"http://localhost:11434"`).
+    /// `model` is the model name (e.g. `"qwen2.5:7b"`).
+    /// `timeout` is the per-request timeout applied to the HTTP client.
     pub fn new(endpoint: impl Into<String>, model: impl Into<String>, timeout: Duration) -> Self {
         let client = reqwest::Client::builder()
             .timeout(timeout)
@@ -94,6 +110,8 @@ impl OllamaTranslator {
         }
     }
 
+    /// Override both system prompts. Useful for customising the translation
+    /// register beyond the built-in `terse` vs `fluent` choice.
     pub fn with_system_prompts(mut self, en_to_zh: String, zh_to_en: String) -> Self {
         self.en_to_zh_system = en_to_zh;
         self.zh_to_en_system = zh_to_en;

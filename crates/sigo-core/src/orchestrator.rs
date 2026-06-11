@@ -1,3 +1,19 @@
+//! Per-turn orchestration for the EN→ZH→Claude→EN pipeline.
+//!
+//! The [`Orchestrator`] manages the full round trip:
+//! 1. Translates the English prompt to Chinese via [`Translator`]
+//! 2. Applies whitespace compaction (with a never-worse token guard)
+//! 3. Streams the Chinese prompt to Claude via [`ClaudeBackend`]
+//! 4. Segments Claude's response with [`SentenceBuffer`]
+//! 5. Translates each sentence ZH→EN concurrently (bounded, in-order emission)
+//! 6. Records every turn to the [`BenchmarkSink`]
+//!
+//! ## Concurrency model
+//!
+//! Chinese→English sentence translations run concurrently (up to
+//! [`MAX_INFLIGHT`]) while the Claude stream is being read. A
+//! [`FuturesOrdered`] queue ensures outbound order matches the stream order.
+
 use chrono::Utc;
 use futures::stream::FuturesOrdered;
 use futures::StreamExt;
@@ -17,14 +33,19 @@ use crate::stream::{Segment, SentenceBuffer};
 use crate::tokenizer::Tokenizer;
 use crate::translator::Translator;
 
+/// Whether a parallel English control run accompanies each ZH turn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ControlMode {
+    /// No control run — ZH-only.
     Off,
+    /// Track EN prompt tokens only (no full turn).
     PromptOnly,
+    /// Full parallel EN turn with token and cost tracking.
     Full,
 }
 
 impl ControlMode {
+    /// Parse a control mode from a string (`"off"`, `"prompt-only"`, `"full"`).
     pub fn parse(s: &str) -> Option<Self> {
         match s {
             "off" => Some(Self::Off),
@@ -35,6 +56,8 @@ impl ControlMode {
     }
 }
 
+/// Configuration for the orchestrator.
+#[allow(missing_docs)]
 pub struct OrchestratorConfig {
     pub backend_kind: BackendKind,
     pub claude_model: String,
@@ -42,6 +65,12 @@ pub struct OrchestratorConfig {
     pub control_mode: ControlMode,
 }
 
+/// The main orchestrator: manages conversation state and runs the end-to-end
+/// translation pipeline for each turn.
+///
+/// All fields are `pub` so the REPL's slash-commands can hot-swap components
+/// (translator, backend, config) mid-session.
+#[allow(missing_docs)]
 pub struct Orchestrator {
     pub session_id: Uuid,
     pub turn_index: u32,
@@ -58,12 +87,16 @@ pub struct Orchestrator {
     english_convo_tokens: u32,
 }
 
-/// Sink for streamed English output. Implementations: terminal printer, in-memory buffer for tests.
+/// Sink for streamed English output. Implementations: terminal printer,
+/// in-memory buffer for tests.
 pub trait OutputSink: Send {
+    /// Write a string fragment to the output.
     fn write(&mut self, s: &str);
+    /// Flush the output (default no-op).
     fn flush(&mut self) {}
 }
 
+/// Writes streamed output to [`std::io::stdout`].
 pub struct StdoutSink;
 impl OutputSink for StdoutSink {
     fn write(&mut self, s: &str) {
@@ -73,8 +106,10 @@ impl OutputSink for StdoutSink {
     }
 }
 
+/// Accumulates streamed output into a `String` buffer (used in tests).
 #[derive(Default)]
 pub struct CollectSink {
+    /// The accumulated output.
     pub buf: String,
 }
 impl OutputSink for CollectSink {
@@ -84,6 +119,7 @@ impl OutputSink for CollectSink {
 }
 
 impl Orchestrator {
+    /// Build a new orchestrator with the given configuration and components.
     pub fn new(
         config: OrchestratorConfig,
         translator: Arc<dyn Translator>,
@@ -106,6 +142,7 @@ impl Orchestrator {
         }
     }
 
+    /// Reset the orchestrator for a new session (new session ID, fresh conversations).
     pub fn reset(&mut self) {
         self.session_id = Uuid::new_v4();
         self.turn_index = 0;

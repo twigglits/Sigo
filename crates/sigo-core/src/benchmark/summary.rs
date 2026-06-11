@@ -1,3 +1,6 @@
+//! Aggregate turn-record summaries and session-level statistics.
+#![allow(missing_docs)]
+
 use serde::Serialize;
 use std::path::Path;
 

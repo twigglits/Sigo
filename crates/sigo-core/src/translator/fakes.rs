@@ -17,6 +17,9 @@ pub struct FakeTranslator {
 }
 
 impl FakeTranslator {
+    /// Create a new lenient fake translator.
+    ///
+    /// Unknown inputs return a `[mock ...]` placeholder instead of an error.
     pub fn new() -> Self {
         Self {
             en_to_zh: Mutex::new(HashMap::new()),
@@ -24,7 +27,9 @@ impl FakeTranslator {
             strict: false,
         }
     }
-    /// Strict mode: returns `Err` for any input not registered via `add_en_to_zh` / `add_zh_to_en`.
+    /// Create a strict fake translator: returns `Err` for any input not
+    /// registered via [`add_en_to_zh`](FakeTranslator::add_en_to_zh) /
+    /// [`add_zh_to_en`](FakeTranslator::add_zh_to_en).
     pub fn new_strict() -> Self {
         Self {
             en_to_zh: Mutex::new(HashMap::new()),
@@ -32,12 +37,14 @@ impl FakeTranslator {
             strict: true,
         }
     }
+    /// Register an EN→ZH mapping.
     pub fn add_en_to_zh(&self, en: &str, zh: &str) {
         self.en_to_zh
             .lock()
             .unwrap()
             .insert(en.to_string(), zh.to_string());
     }
+    /// Register a ZH→EN mapping.
     pub fn add_zh_to_en(&self, zh: &str, en: &str) {
         self.zh_to_en
             .lock()

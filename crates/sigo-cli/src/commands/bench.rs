@@ -5,6 +5,7 @@ use uuid::Uuid;
 use crate::cli::{BenchCommand, ExportFormat};
 use crate::commands::bench_run::{self, RunOptions};
 
+/// Execute a bench subcommand (summary, show, export).
 pub async fn run(config: &SigoConfig, cmd: BenchCommand) -> Result<()> {
     let path = config.resolved_log_path();
     let records = read_jsonl(&path).map_err(|e| anyhow::anyhow!("read {}: {e}", path.display()))?;
