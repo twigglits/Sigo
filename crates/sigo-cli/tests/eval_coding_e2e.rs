@@ -94,7 +94,7 @@ async fn eval_mode_writes_report_with_fakes() {
     use sigo_cli::commands::bench_run::{
         run_with_builders, BackendBuilder, RunOptions, TranslatorBuilder,
     };
-    use sigo_core::{ClaudeBackend, FakeBackend, FakeTranslator, SigoConfig, Translator, Usage};
+    use sigo_core::{AnyClaudeBackend, AnyTranslator, FakeBackend, FakeTranslator, SigoConfig, Usage};
     use std::sync::Arc;
     use tempfile::TempDir;
 
@@ -132,7 +132,7 @@ async fn eval_mode_writes_report_with_fakes() {
     // ── Translator fakes ─────────────────────────────────────────────────────
     // Lenient mode: unknown inputs produce a [mock …] placeholder, so we only
     // need to register the prompt strings we actually send.
-    let translator = Arc::new(FakeTranslator::new());
+    let translator = FakeTranslator::new();
     // EN→ZH for the two prompts.
     translator.add_en_to_zh(
         "def add(a, b):\n    \"\"\"add\"\"\"\n",
@@ -155,7 +155,7 @@ async fn eval_mode_writes_report_with_fakes() {
     // We enqueue each answer TWICE so that regardless of which call drains which
     // queue slot first, both arms receive the same answer and produce the same
     // Outcome.  This makes the assertions independent of tokio scheduling order.
-    let backend = Arc::new(FakeBackend::new());
+    let backend = FakeBackend::new();
 
     let pass_answer = "```python\ndef add(a, b):\n    return a + b\n```";
     let fail_answer = "```python\ndef sub(a, b):\n    return a + b\n```"; // wrong: adds instead of subtracts
@@ -179,10 +179,10 @@ async fn eval_mode_writes_report_with_fakes() {
     let translator_clone = translator.clone();
     let backend_clone = backend.clone();
     let translator_builder: TranslatorBuilder =
-        Arc::new(move || translator_clone.clone() as Arc<dyn Translator>);
-    let backend_builder: BackendBuilder =
-        Arc::new(move || Ok(backend_clone.clone() as Arc<dyn ClaudeBackend>));
+        Arc::new(move || AnyTranslator::Fake(translator_clone.clone()));
 
+        let backend_builder: BackendBuilder =
+            Arc::new(move || Ok(AnyClaudeBackend::Fake(backend_clone.clone())));
     // ── Config ───────────────────────────────────────────────────────────────
     let mut cfg = SigoConfig::default();
     cfg.benchmark.log_path = Some(jsonl.clone());

@@ -6,7 +6,6 @@
 
 use crate::conversation::Direction;
 use crate::error::Result;
-use async_trait::async_trait;
 
 /// Test/bench stub translator with programmable responses.
 pub mod fakes;
@@ -20,10 +19,33 @@ pub mod prompts;
 pub mod sanitize;
 
 /// Bidirectional EN↔ZH translator.
-#[async_trait]
+///
+/// This trait uses native `async fn` (RPITIT, stable since Rust 1.75). It is NOT
+/// dyn-compatible; use [`AnyTranslator`] for dynamic dispatch.
 pub trait Translator: Send + Sync {
     /// Translate `text` in the given direction.
     async fn translate(&self, text: &str, dir: Direction) -> Result<String>;
+}
+
+/// Runtime-safe enum over all [`Translator`] implementations.
+///
+/// Prefer this over `Arc<dyn Translator>`: it enables native async dispatch
+/// (no boxing, no vtable) and the set of backends is closed / checked at compile time.
+#[derive(Debug, Clone)]
+pub enum AnyTranslator {
+    /// Ollama-based local translation (EN↔ZH).
+    Ollama(OllamaTranslator),
+    /// Test/bench stub with programmable responses.
+    Fake(FakeTranslator),
+}
+
+impl Translator for AnyTranslator {
+    async fn translate(&self, text: &str, dir: Direction) -> Result<String> {
+        match self {
+            Self::Ollama(inner) => inner.translate(text, dir).await,
+            Self::Fake(inner) => inner.translate(text, dir).await,
+        }
+    }
 }
 
 pub use fakes::FakeTranslator;

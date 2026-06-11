@@ -7,9 +7,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use sigo_core::{
-    ApiBackend, BackendKind, BenchmarkSink, ClaudeBackend, ClaudeCodeBackend, ControlMode,
-    JsonlSink, OllamaTranslator, Orchestrator, OrchestratorConfig, SigoConfig, Tokenizer,
-    TokenizerProxy, Translator,
+    AnyClaudeBackend, AnyTranslator, ApiBackend, BackendKind, BenchmarkSink, ClaudeCodeBackend,
+    ControlMode, JsonlSink, OllamaTranslator, Orchestrator, OrchestratorConfig, SigoConfig,
+    Tokenizer, TokenizerProxy,
 };
 
 use crate::display::Display;
@@ -25,7 +25,7 @@ pub struct ReplState {
 /// Build the full orchestrator stack (translator + backend + tokenizer + sink) from config.
 /// Shared by the REPL and the one-shot `chat` command.
 pub fn build_orchestrator(config: &SigoConfig) -> Result<Orchestrator> {
-    let translator: Arc<dyn Translator> = Arc::new(
+    let translator = AnyTranslator::Ollama(
         OllamaTranslator::new(
             &config.translator.endpoint,
             &config.translator.model,
@@ -35,7 +35,7 @@ pub fn build_orchestrator(config: &SigoConfig) -> Result<Orchestrator> {
     );
 
     let backend_kind = parse_backend(&config.claude.backend)?;
-    let backend: Arc<dyn ClaudeBackend> = build_backend(backend_kind, config)?;
+    let backend = build_backend(backend_kind, config)?;
 
     let tokenizer: Arc<dyn Tokenizer> =
         Arc::new(TokenizerProxy::new().context("failed to initialize o200k_base proxy tokenizer")?);
@@ -207,7 +207,7 @@ async fn handle_slash(rest: &str, state: &mut ReplState, config: &SigoConfig) ->
             } else {
                 match args[0] {
                     "translator" => {
-                        let new_translator: Arc<dyn Translator> = Arc::new(
+                        let new_translator = AnyTranslator::Ollama(
                             OllamaTranslator::new(
                                 &config.translator.endpoint,
                                 args[1],
@@ -300,12 +300,12 @@ pub fn parse_backend(s: &str) -> Result<BackendKind> {
 }
 
 /// Build a Claude backend from its kind and config.
-pub fn build_backend(kind: BackendKind, cfg: &SigoConfig) -> Result<Arc<dyn ClaudeBackend>> {
+pub fn build_backend(kind: BackendKind, cfg: &SigoConfig) -> Result<AnyClaudeBackend> {
     match kind {
         BackendKind::Api => {
             let key = std::env::var("ANTHROPIC_API_KEY")
                 .context("ANTHROPIC_API_KEY env var not set (required for `api` backend)")?;
-            Ok(Arc::new(ApiBackend::with_options(
+            Ok(AnyClaudeBackend::Api(ApiBackend::with_options(
                 key,
                 &cfg.claude.model,
                 cfg.claude.max_tokens,
@@ -313,7 +313,7 @@ pub fn build_backend(kind: BackendKind, cfg: &SigoConfig) -> Result<Arc<dyn Clau
                 cfg.claude.top_p,
             )))
         }
-        BackendKind::ClaudeCode => Ok(Arc::new(
+        BackendKind::ClaudeCode => Ok(AnyClaudeBackend::ClaudeCode(
             ClaudeCodeBackend::new(&cfg.claude.claude_code.binary)
                 .with_extra_args(cfg.claude.claude_code.extra_args.clone())
                 .with_model(cfg.claude.model.clone()),

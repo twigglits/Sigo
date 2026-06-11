@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 use futures::stream::BoxStream;
 use serde::Deserialize;
 use std::process::Stdio;
@@ -101,7 +100,6 @@ struct CcUsage {
     cache_creation_input_tokens: Option<u32>,
 }
 
-#[async_trait]
 impl ClaudeBackend for ClaudeCodeBackend {
     async fn stream_turn(
         &self,

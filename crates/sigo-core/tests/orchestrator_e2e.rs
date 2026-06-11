@@ -1,19 +1,20 @@
 use sigo_core::{
-    BackendKind, CollectSink, ControlMode, FakeBackend, FakeTranslator, MemorySink, Orchestrator,
-    OrchestratorConfig, ResponseChunk, Tokenizer, TokenizerProxy, Usage,
+    AnyClaudeBackend, AnyTranslator, BackendKind, CollectSink, ControlMode, FakeBackend,
+    FakeTranslator, MemorySink, Orchestrator, OrchestratorConfig, ResponseChunk, Tokenizer,
+    TokenizerProxy, Usage,
 };
 use std::sync::Arc;
 use std::time::Duration;
 
 #[tokio::test]
 async fn multi_turn_session_advances_history_and_records_each_turn() {
-    let translator = Arc::new(FakeTranslator::new());
+    let translator = FakeTranslator::new();
     translator.add_en_to_zh("ping", "乒");
     translator.add_zh_to_en("乓。", "Pong.");
     translator.add_en_to_zh("again", "再");
     translator.add_zh_to_en("再乓。", "Pong again.");
 
-    let backend = Arc::new(FakeBackend::new());
+    let backend = FakeBackend::new();
     backend.enqueue_simple(
         "乓。",
         Usage {
@@ -40,7 +41,13 @@ async fn multi_turn_session_advances_history_and_records_each_turn() {
         control_mode: ControlMode::PromptOnly,
     };
     let tokenizer: Arc<dyn Tokenizer> = Arc::new(TokenizerProxy::new().unwrap());
-    let mut orch = Orchestrator::new(cfg, translator, backend, tokenizer, sink.clone());
+    let mut orch = Orchestrator::new(
+        cfg,
+        AnyTranslator::Fake(translator),
+        AnyClaudeBackend::Fake(backend),
+        tokenizer,
+        sink.clone(),
+    );
 
     let mut out1 = CollectSink::default();
     let r1 = orch.run_turn("ping", &mut out1).await.unwrap();
@@ -59,11 +66,11 @@ async fn multi_turn_session_advances_history_and_records_each_turn() {
 
 #[tokio::test]
 async fn stream_without_done_still_records_a_turn() {
-    let translator = Arc::new(FakeTranslator::new());
+    let translator = FakeTranslator::new();
     translator.add_en_to_zh("ping", "乒");
     translator.add_zh_to_en("乓", "Pong");
 
-    let backend = Arc::new(FakeBackend::new());
+    let backend = FakeBackend::new();
     // Script: yield a text delta but NO Done event. The stream ends cleanly afterward.
     let scripted: Vec<(ResponseChunk, Duration)> = vec![(
         ResponseChunk::TextDelta("乓".into()),
@@ -80,7 +87,13 @@ async fn stream_without_done_still_records_a_turn() {
         control_mode: ControlMode::PromptOnly,
     };
     let tokenizer: Arc<dyn Tokenizer> = Arc::new(TokenizerProxy::new().unwrap());
-    let mut orch = Orchestrator::new(cfg, translator, backend, tokenizer, sink.clone());
+    let mut orch = Orchestrator::new(
+        cfg,
+        AnyTranslator::Fake(translator),
+        AnyClaudeBackend::Fake(backend),
+        tokenizer,
+        sink.clone(),
+    );
 
     let mut out = CollectSink::default();
     let record = orch.run_turn("ping", &mut out).await.unwrap();

@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 use futures::stream::{self, BoxStream};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -8,7 +7,7 @@ use crate::conversation::{Conversation, Usage};
 use crate::error::{Result, SigoError};
 
 /// One item in a scripted turn — either a happy-path chunk or an error to inject.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum ScriptedItem {
     /// Emit a normal chunk to the consumer.
     Chunk(ResponseChunk),
@@ -24,6 +23,7 @@ type ScriptQueue = Arc<Mutex<Vec<Vec<(ScriptedItem, Duration)>>>>;
 /// Scripted responses can be enqueued per-turn. Each call to `stream_turn` pops
 /// the next script and replays its chunks/errors in order. The prompts passed to
 /// each call are recorded for assertion.
+#[derive(Debug, Clone)]
 pub struct FakeBackend {
     scripts: ScriptQueue,
     sent_prompts: Arc<Mutex<Vec<String>>>,
@@ -97,7 +97,6 @@ impl FakeBackend {
     }
 }
 
-#[async_trait]
 impl ClaudeBackend for FakeBackend {
     async fn stream_turn(
         &self,

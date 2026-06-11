@@ -8,9 +8,9 @@ use std::time::Duration;
 use sigo_core::{
     build_csv, build_eval_csv, build_eval_markdown, build_markdown, evaluate_answer,
     load_coding_corpus, load_corpus, roundtrip_fidelity, summarize_eval, summarize_run, ArmCost,
-    ArmEval, BackendKind, BenchmarkSink, ClaudeBackend, ControlMode, CorpusEntry, JsonlSink,
-    OllamaJudge, OllamaTranslator, Orchestrator, OrchestratorConfig, OutputSink, RunReport,
-    SigoConfig, TaskEval, Tokenizer, TokenizerProxy, Translator, TurnRecord,
+    AnyClaudeBackend, AnyTranslator, ArmEval, BackendKind, BenchmarkSink, ControlMode, CorpusEntry,
+    JsonlSink, OllamaJudge, OllamaTranslator, Orchestrator, OrchestratorConfig, OutputSink,
+    RunReport, SigoConfig, TaskEval, Tokenizer, TokenizerProxy, TurnRecord,
 };
 
 use crate::repl::build_backend;
@@ -30,9 +30,9 @@ pub struct RunOptions {
 }
 
 /// Builder for translator instances (lazy, so the test suite can inject fakes).
-pub type TranslatorBuilder = Arc<dyn Fn() -> Arc<dyn Translator> + Send + Sync>;
+pub type TranslatorBuilder = Arc<dyn Fn() -> AnyTranslator + Send + Sync>;
 /// Builder for backend instances (lazy, so the test suite can inject fakes).
-pub type BackendBuilder = Arc<dyn Fn() -> Result<Arc<dyn ClaudeBackend>> + Send + Sync>;
+pub type BackendBuilder = Arc<dyn Fn() -> Result<AnyClaudeBackend> + Send + Sync>;
 
 /// Run a benchmark from config and options.
 pub async fn run(cfg: &SigoConfig, opts: RunOptions) -> Result<()> {
@@ -40,14 +40,14 @@ pub async fn run(cfg: &SigoConfig, opts: RunOptions) -> Result<()> {
     let backend_kind = parse_backend_kind(&cfg.claude.backend)?;
     let cfg_for_tx = cfg.clone();
     let translator_builder: TranslatorBuilder = Arc::new(move || {
-        Arc::new(
+        AnyTranslator::Ollama(
             OllamaTranslator::new(
                 &cfg_for_tx.translator.endpoint,
                 &cfg_for_tx.translator.model,
                 Duration::from_secs(cfg_for_tx.translator.timeout_seconds),
             )
             .with_style(cfg_for_tx.translator.style),
-        ) as Arc<dyn Translator>
+        )
     });
     let cfg_for_be = cfg.clone();
     let backend_builder: BackendBuilder =
@@ -455,7 +455,7 @@ async fn run_coding_eval(
             .unwrap_or_default();
 
         let fidelity = roundtrip_fidelity(
-            translator.as_ref(),
+            &translator,
             &judge,
             &task.prompt,
             &record.chinese_prompt,

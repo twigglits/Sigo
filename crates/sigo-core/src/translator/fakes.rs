@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
@@ -10,10 +9,21 @@ use crate::error::{Result, SigoError};
 ///
 /// In lenient mode (default via `new()`), unknown inputs return a `[mock ...]` placeholder.
 /// In strict mode (via `new_strict()`), unknown inputs return `Err(SigoError::Translator(...))`.
+#[derive(Debug)]
 pub struct FakeTranslator {
     en_to_zh: Mutex<HashMap<String, String>>,
     zh_to_en: Mutex<HashMap<String, String>>,
     strict: bool,
+}
+
+impl Clone for FakeTranslator {
+    fn clone(&self) -> Self {
+        Self {
+            en_to_zh: Mutex::new(self.en_to_zh.lock().unwrap().clone()),
+            zh_to_en: Mutex::new(self.zh_to_en.lock().unwrap().clone()),
+            strict: self.strict,
+        }
+    }
 }
 
 impl FakeTranslator {
@@ -59,7 +69,6 @@ impl Default for FakeTranslator {
     }
 }
 
-#[async_trait]
 impl Translator for FakeTranslator {
     async fn translate(&self, text: &str, dir: Direction) -> Result<String> {
         let map = match dir {

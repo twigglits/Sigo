@@ -2,17 +2,17 @@ use std::sync::Arc;
 
 use sigo_cli::commands::chat;
 use sigo_core::{
-    BackendKind, CollectSink, ControlMode, FakeBackend, FakeTranslator, MemorySink, Orchestrator,
-    OrchestratorConfig, Tokenizer, TokenizerProxy, Usage,
+    AnyClaudeBackend, AnyTranslator, BackendKind, CollectSink, ControlMode, FakeBackend,
+    FakeTranslator, MemorySink, Orchestrator, OrchestratorConfig, Tokenizer, TokenizerProxy, Usage,
 };
 
 #[tokio::test]
 async fn chat_run_once_emits_translated_answer_and_trailing_newline() {
-    let translator = Arc::new(FakeTranslator::new());
+    let translator = FakeTranslator::new();
     translator.add_en_to_zh("Hello, world!", "你好，世界！");
     translator.add_zh_to_en("你好，世界！", "Hello, world!");
 
-    let backend = Arc::new(FakeBackend::new());
+    let backend = FakeBackend::new();
     backend.enqueue_simple(
         "你好，世界！",
         Usage {
@@ -30,7 +30,13 @@ async fn chat_run_once_emits_translated_answer_and_trailing_newline() {
         translator_model: "fake".into(),
         control_mode: ControlMode::PromptOnly,
     };
-    let mut orch = Orchestrator::new(cfg, translator, backend, tokenizer, sink.clone());
+    let mut orch = Orchestrator::new(
+        cfg,
+        AnyTranslator::Fake(translator),
+        AnyClaudeBackend::Fake(backend),
+        tokenizer,
+        sink.clone(),
+    );
 
     let mut out = CollectSink::default();
     chat::run_once(&mut orch, "Hello, world!", &mut out, false)

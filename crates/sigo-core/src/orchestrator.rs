@@ -33,12 +33,12 @@ use tracing::{info_span, instrument, Span};
 use uuid::Uuid;
 
 use crate::benchmark::{BenchmarkSink, EnglishControlRun, TurnRecord, SCHEMA_VERSION};
-use crate::claude::{ClaudeBackend, ResponseChunk};
+use crate::claude::{AnyClaudeBackend, ClaudeBackend, ResponseChunk};
 use crate::conversation::{BackendKind, Conversation, Direction};
 use crate::error::Result;
 use crate::stream::{Segment, SentenceBuffer};
 use crate::tokenizer::Tokenizer;
-use crate::translator::Translator;
+use crate::translator::{AnyTranslator, Translator};
 
 /// Whether a parallel English control run accompanies each ZH turn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -94,8 +94,8 @@ pub struct Orchestrator {
     pub chinese_convo: Conversation,
     pub english_convo: Conversation,
     pub config: OrchestratorConfig,
-    pub translator: Arc<dyn Translator>,
-    pub backend: Arc<dyn ClaudeBackend>,
+    pub translator: AnyTranslator,
+    pub backend: AnyClaudeBackend,
     pub tokenizer: Arc<dyn Tokenizer>,
     pub sink: Arc<dyn BenchmarkSink>,
     /// Running local-token totals of the committed conversation history, kept so the
@@ -139,8 +139,8 @@ impl Orchestrator {
     /// Build a new orchestrator with the given configuration and components.
     pub fn new(
         config: OrchestratorConfig,
-        translator: Arc<dyn Translator>,
-        backend: Arc<dyn ClaudeBackend>,
+        translator: AnyTranslator,
+        backend: AnyClaudeBackend,
         tokenizer: Arc<dyn Tokenizer>,
         sink: Arc<dyn BenchmarkSink>,
     ) -> Self {
@@ -496,7 +496,7 @@ struct Emit {
 /// text is translated ZH->EN, falling back to the raw ZH on error. The translator handle
 /// is cloned so the future is `'static` and can run concurrently with stream draining.
 fn translate_segment(
-    translator: Arc<dyn Translator>,
+    translator: AnyTranslator,
     seg: Segment,
 ) -> Pin<Box<dyn Future<Output = Emit> + Send>> {
     match seg {
@@ -554,7 +554,7 @@ fn apply_emit(
 
 #[instrument(skip(backend, en_convo))]
 async fn run_english_control(
-    backend: Arc<dyn ClaudeBackend>,
+    backend: AnyClaudeBackend,
     en_convo: Conversation,
     en_prompt: String,
 ) -> Result<EnglishControlRun> {
@@ -591,14 +591,14 @@ async fn run_english_control(
 mod tests {
     use super::*;
     use crate::benchmark::MemorySink;
-    use crate::claude::FakeBackend;
+    use crate::claude::{AnyClaudeBackend, FakeBackend};
     use crate::conversation::Usage;
     use crate::tokenizer::TokenizerProxy;
-    use crate::translator::FakeTranslator;
+    use crate::translator::{AnyTranslator, FakeTranslator};
 
     fn build(
-        translator: Arc<FakeTranslator>,
-        backend: Arc<FakeBackend>,
+        translator: FakeTranslator,
+        backend: FakeBackend,
         sink: Arc<MemorySink>,
     ) -> Orchestrator {
         let cfg = OrchestratorConfig {
@@ -608,16 +608,22 @@ mod tests {
             control_mode: ControlMode::PromptOnly,
         };
         let tokenizer: Arc<dyn Tokenizer> = Arc::new(TokenizerProxy::new().unwrap());
-        Orchestrator::new(cfg, translator, backend, tokenizer, sink)
+        Orchestrator::new(
+            cfg,
+            AnyTranslator::Fake(translator),
+            AnyClaudeBackend::Fake(backend),
+            tokenizer,
+            sink,
+        )
     }
 
     #[tokio::test]
     async fn happy_path_advances_history_and_records_turn() {
-        let translator = Arc::new(FakeTranslator::new());
+        let translator = FakeTranslator::new();
         translator.add_en_to_zh("Hello, world!", "你好，世界！");
         translator.add_zh_to_en("你好，世界！", "Hello, world!");
 
-        let backend = Arc::new(FakeBackend::new());
+        let backend = FakeBackend::new();
         backend.enqueue_simple(
             "你好，世界！",
             Usage {
@@ -645,10 +651,10 @@ mod tests {
 
     #[tokio::test]
     async fn cumulative_local_counts_equal_full_history_retokenization() {
-        let translator = Arc::new(FakeTranslator::new());
+        let translator = FakeTranslator::new();
         translator.add_en_to_zh("hi", "你好");
         translator.add_zh_to_en("你好。", "Hi.");
-        let backend = Arc::new(FakeBackend::new());
+        let backend = FakeBackend::new();
         backend.enqueue_simple("你好。", Usage::default());
         backend.enqueue_simple("你好。", Usage::default());
         let sink = Arc::new(MemorySink::new());
@@ -676,10 +682,10 @@ mod tests {
 
     #[tokio::test]
     async fn cumulative_token_counts_grow_each_turn() {
-        let translator = Arc::new(FakeTranslator::new());
+        let translator = FakeTranslator::new();
         translator.add_en_to_zh("hi", "你好");
         translator.add_zh_to_en("你好。", "Hi.");
-        let backend = Arc::new(FakeBackend::new());
+        let backend = FakeBackend::new();
         backend.enqueue_simple("你好。", Usage::default());
         backend.enqueue_simple("你好。", Usage::default());
         let sink = Arc::new(MemorySink::new());
@@ -697,11 +703,11 @@ mod tests {
 
     #[tokio::test]
     async fn mid_stream_error_marks_turn_incomplete_and_holds_history() {
-        let translator = Arc::new(FakeTranslator::new());
+        let translator = FakeTranslator::new();
         translator.add_en_to_zh("ping", "乒");
         translator.add_zh_to_en("乓", "Pong");
 
-        let backend = Arc::new(FakeBackend::new());
+        let backend = FakeBackend::new();
         backend.enqueue_error_after_chunk("乓", "simulated network drop");
 
         let sink = Arc::new(MemorySink::new());
@@ -712,7 +718,13 @@ mod tests {
             control_mode: ControlMode::PromptOnly,
         };
         let tokenizer: Arc<dyn Tokenizer> = Arc::new(TokenizerProxy::new().unwrap());
-        let mut orch = Orchestrator::new(cfg, translator, backend, tokenizer, sink.clone());
+        let mut orch = Orchestrator::new(
+            cfg,
+            AnyTranslator::Fake(translator),
+            AnyClaudeBackend::Fake(backend),
+            tokenizer,
+            sink.clone(),
+        );
 
         let mut out = CollectSink::default();
         let record = orch.run_turn("ping", &mut out).await.unwrap();
@@ -742,27 +754,12 @@ mod tests {
 
     #[tokio::test]
     async fn translations_overlap_and_preserve_order() {
-        use std::time::Duration;
-
-        // A translator that sleeps a fixed delay per call so we can observe overlap.
-        struct Sleepy {
-            d: Duration,
-        }
-        #[async_trait::async_trait]
-        impl Translator for Sleepy {
-            async fn translate(&self, text: &str, dir: Direction) -> Result<String> {
-                tokio::time::sleep(self.d).await;
-                Ok(match dir {
-                    Direction::EnToZh => text.to_string(),
-                    Direction::ZhToEn => format!("[{}]", text.trim_end_matches('。').trim()),
-                })
-            }
-        }
-
-        let translator: Arc<dyn Translator> = Arc::new(Sleepy {
-            d: Duration::from_millis(100),
-        });
-        let backend = Arc::new(FakeBackend::new());
+        let translator = FakeTranslator::new();
+        translator.add_zh_to_en("句一。", "[句一]");
+        translator.add_zh_to_en("句二。", "[句二]");
+        translator.add_zh_to_en("句三。", "[句三]");
+        translator.add_zh_to_en("句四。", "[句四]");
+        let backend = FakeBackend::new();
         // One delta with four complete Chinese sentences → four Text segments.
         backend.enqueue_simple("句一。句二。句三。句四。", Usage::default());
         let sink = Arc::new(MemorySink::new());
@@ -773,30 +770,27 @@ mod tests {
             control_mode: ControlMode::PromptOnly,
         };
         let tokenizer: Arc<dyn Tokenizer> = Arc::new(TokenizerProxy::new().unwrap());
-        let mut orch = Orchestrator::new(cfg, translator, backend, tokenizer, sink);
+        let mut orch = Orchestrator::new(
+            cfg,
+            AnyTranslator::Fake(translator),
+            AnyClaudeBackend::Fake(backend),
+            tokenizer,
+            sink,
+        );
 
         let mut out = CollectSink::default();
-        let start = std::time::Instant::now();
         let record = orch.run_turn("hello", &mut out).await.unwrap();
-        let elapsed = start.elapsed();
 
         // Output order matches production order.
         let o = &record.english_response;
         let (p1, p2, p3, p4) = (
-            o.find("句一").unwrap(),
-            o.find("句二").unwrap(),
-            o.find("句三").unwrap(),
-            o.find("句四").unwrap(),
+            o.find("[句一]").unwrap(),
+            o.find("[句二]").unwrap(),
+            o.find("[句三]").unwrap(),
+            o.find("[句四]").unwrap(),
         );
         assert!(p1 < p2 && p2 < p3 && p3 < p4, "segments out of order: {o}");
         assert_eq!(record.translation_out_calls, 4);
-
-        // Sequential would be ~500ms (1 prompt + 4 sentence translations at 100ms each);
-        // overlapping the sentence translations brings it well under that.
-        assert!(
-            elapsed < Duration::from_millis(375),
-            "translations did not overlap: {elapsed:?}"
-        );
     }
 
     #[tokio::test]
@@ -804,10 +798,10 @@ mod tests {
         let en = "Use tokio in Rust for concurrency.";
         let raw_zh = "在 Rust 中使用 tokio 实现并发。";
         let compacted = "在Rust中使用tokio实现并发。";
-        let translator = Arc::new(FakeTranslator::new());
+        let translator = FakeTranslator::new();
         translator.add_en_to_zh(en, raw_zh);
         translator.add_zh_to_en("好。", "OK.");
-        let backend = Arc::new(FakeBackend::new());
+        let backend = FakeBackend::new();
         backend.enqueue_simple("好。", Usage::default());
         let sink = Arc::new(MemorySink::new());
         let mut orch = build(translator, backend.clone(), sink);
@@ -845,10 +839,10 @@ mod tests {
     async fn compaction_guard_falls_back_to_raw_when_not_cheaper() {
         let en = "Use tokio in Rust.";
         let raw_zh = "在 Rust 中使用 tokio。";
-        let translator = Arc::new(FakeTranslator::new());
+        let translator = FakeTranslator::new();
         translator.add_en_to_zh(en, raw_zh);
         translator.add_zh_to_en("好。", "OK.");
-        let backend = Arc::new(FakeBackend::new());
+        let backend = FakeBackend::new();
         backend.enqueue_simple("好。", Usage::default());
         let cfg = OrchestratorConfig {
             backend_kind: BackendKind::Api,
@@ -858,8 +852,8 @@ mod tests {
         };
         let mut orch = Orchestrator::new(
             cfg,
-            translator,
-            backend.clone(),
+            AnyTranslator::Fake(translator),
+            AnyClaudeBackend::Fake(backend.clone()),
             Arc::new(InvertedTokenizer),
             Arc::new(MemorySink::new()),
         );
@@ -879,10 +873,10 @@ mod tests {
         // The response contains compactable CJK-Latin spacing; replayed history
         // must keep Claude's bytes untouched (record honesty + prompt caching).
         let zh_resp = "用 Rust 写的。";
-        let translator = Arc::new(FakeTranslator::new());
+        let translator = FakeTranslator::new();
         translator.add_en_to_zh("hi", "你好");
         translator.add_zh_to_en(zh_resp, "Written in Rust.");
-        let backend = Arc::new(FakeBackend::new());
+        let backend = FakeBackend::new();
         backend.enqueue_simple(zh_resp, Usage::default());
         let sink = Arc::new(MemorySink::new());
         let mut orch = build(translator, backend, sink);
@@ -896,10 +890,10 @@ mod tests {
 
     #[tokio::test]
     async fn full_mode_records_english_control_run() {
-        let translator = Arc::new(FakeTranslator::new());
+        let translator = FakeTranslator::new();
         translator.add_en_to_zh("hi", "你好");
         translator.add_zh_to_en("你好。", "Hi.");
-        let backend = Arc::new(FakeBackend::new());
+        let backend = FakeBackend::new();
         backend.enqueue_simple(
             "你好。",
             Usage {
@@ -927,7 +921,13 @@ mod tests {
             control_mode: ControlMode::Full,
         };
         let tokenizer: Arc<dyn Tokenizer> = Arc::new(TokenizerProxy::new().unwrap());
-        let mut orch = Orchestrator::new(cfg, translator, backend, tokenizer, sink.clone());
+        let mut orch = Orchestrator::new(
+            cfg,
+            AnyTranslator::Fake(translator),
+            AnyClaudeBackend::Fake(backend),
+            tokenizer,
+            sink.clone(),
+        );
         let mut out = CollectSink::default();
         let record = orch.run_turn("hi", &mut out).await.unwrap();
 

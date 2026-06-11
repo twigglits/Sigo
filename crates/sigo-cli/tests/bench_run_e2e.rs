@@ -3,7 +3,7 @@ use std::sync::Arc;
 use sigo_cli::commands::bench_run::{
     run_with_builders, BackendBuilder, RunOptions, TranslatorBuilder,
 };
-use sigo_core::{ClaudeBackend, FakeBackend, FakeTranslator, SigoConfig, Translator, Usage};
+use sigo_core::{AnyClaudeBackend, AnyTranslator, FakeBackend, FakeTranslator, SigoConfig, Usage};
 use tempfile::TempDir;
 
 fn make_config(jsonl_path: std::path::PathBuf) -> SigoConfig {
@@ -34,14 +34,14 @@ async fn happy_path_three_prompts_two_categories() {
     )
     .unwrap();
 
-    let translator = Arc::new(FakeTranslator::new());
+    let translator = FakeTranslator::new();
     translator.add_en_to_zh("What is HSTS?", "什么是HSTS？");
     translator.add_en_to_zh("What does TCP stand for?", "TCP是什么？");
     translator.add_en_to_zh("Write a haiku about logs.", "写一首关于日志的俳句。");
     // ZH→EN translations triggered by the streamed response segments:
     translator.add_zh_to_en("响应。", "Response.");
 
-    let backend = Arc::new(FakeBackend::new());
+    let backend = FakeBackend::new();
     // For each prompt the runner does: one ZH call + one EN-control call. So 6 enqueues for 3 prompts.
     for input in &[5u32, 6, 7] {
         backend.enqueue_simple(
@@ -67,9 +67,9 @@ async fn happy_path_three_prompts_two_categories() {
     let translator_clone = translator.clone();
     let backend_clone = backend.clone();
     let translator_builder: TranslatorBuilder =
-        Arc::new(move || translator_clone.clone() as Arc<dyn Translator>);
+        Arc::new(move || AnyTranslator::Fake(translator_clone.clone()));
     let backend_builder: BackendBuilder =
-        Arc::new(move || Ok(backend_clone.clone() as Arc<dyn ClaudeBackend>));
+        Arc::new(move || Ok(AnyClaudeBackend::Fake(backend_clone.clone())));
 
     let cfg = make_config(jsonl.clone());
     let opts = RunOptions {
@@ -128,12 +128,12 @@ async fn translator_failure_skips_prompt_and_logs_to_errors_jsonl() {
     .unwrap();
 
     // Use strict mode: "second" has no EN→ZH mapping, so translate() returns Err.
-    let translator = Arc::new(FakeTranslator::new_strict());
+    let translator = FakeTranslator::new_strict();
     translator.add_en_to_zh("first", "第一");
     translator.add_en_to_zh("third", "第三");
     translator.add_zh_to_en("响应。", "Response.");
 
-    let backend = Arc::new(FakeBackend::new());
+    let backend = FakeBackend::new();
     // Only 2 prompts succeed, each does ZH + EN-control = 4 enqueues total.
     for _ in 0..2 {
         backend.enqueue_simple(
@@ -159,9 +159,9 @@ async fn translator_failure_skips_prompt_and_logs_to_errors_jsonl() {
     let translator_clone = translator.clone();
     let backend_clone = backend.clone();
     let translator_builder: TranslatorBuilder =
-        Arc::new(move || translator_clone.clone() as Arc<dyn Translator>);
+        Arc::new(move || AnyTranslator::Fake(translator_clone.clone()));
     let backend_builder: BackendBuilder =
-        Arc::new(move || Ok(backend_clone.clone() as Arc<dyn ClaudeBackend>));
+        Arc::new(move || Ok(AnyClaudeBackend::Fake(backend_clone.clone())));
 
     let cfg = make_config(jsonl.clone());
     let opts = RunOptions {
@@ -214,13 +214,13 @@ async fn mid_stream_claude_error_marks_incomplete_not_failed() {
     )
     .unwrap();
 
-    let translator = Arc::new(FakeTranslator::new());
+    let translator = FakeTranslator::new();
     translator.add_en_to_zh("first", "第一");
     translator.add_en_to_zh("second", "第二");
     translator.add_zh_to_en("响应。", "Response.");
     translator.add_zh_to_en("响应", "Response");
 
-    let backend = Arc::new(FakeBackend::new());
+    let backend = FakeBackend::new();
     // Prompt 1: clean ZH + clean EN control.
     backend.enqueue_simple(
         "响应。",
@@ -255,9 +255,9 @@ async fn mid_stream_claude_error_marks_incomplete_not_failed() {
     let translator_clone = translator.clone();
     let backend_clone = backend.clone();
     let translator_builder: TranslatorBuilder =
-        Arc::new(move || translator_clone.clone() as Arc<dyn Translator>);
+        Arc::new(move || AnyTranslator::Fake(translator_clone.clone()));
     let backend_builder: BackendBuilder =
-        Arc::new(move || Ok(backend_clone.clone() as Arc<dyn ClaudeBackend>));
+        Arc::new(move || Ok(AnyClaudeBackend::Fake(backend_clone.clone())));
 
     let cfg = make_config(jsonl.clone());
     let opts = RunOptions {

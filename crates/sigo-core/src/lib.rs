@@ -50,7 +50,8 @@ pub use benchmark::{
 };
 /// Claude backend re-exports.
 pub use claude::{
-    ApiBackend, ClaudeBackend, ClaudeCodeBackend, FakeBackend, ResponseChunk, ScriptedItem,
+    AnyClaudeBackend, ApiBackend, ClaudeBackend, ClaudeCodeBackend, FakeBackend, ResponseChunk,
+    ScriptedItem,
 };
 /// Chinese text compaction.
 pub use compact::compact_zh;
@@ -78,4 +79,4 @@ pub use stream::{Segment, SentenceBuffer};
 /// Tokenizer re-exports.
 pub use tokenizer::{Tokenizer, TokenizerProxy};
 /// Translator re-exports.
-pub use translator::{sanitize, FakeTranslator, OllamaTranslator, Translator};
+pub use translator::{sanitize, AnyTranslator, FakeTranslator, OllamaTranslator, Translator};

@@ -1,17 +1,15 @@
-use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
 use crate::conversation::Direction;
 use crate::error::{Result, SigoError};
-use crate::translator::Translator;
+use crate::translator::{AnyTranslator, Translator};
 
 /// Scores semantic closeness of two English strings on 0..=10.
 /// Back-translation judge that scores round-trip fidelity.
 ///
 /// Uses a local Ollama model to compare the original prompt with its
 /// back-translated form, scoring constraint recall on a 0–10 scale.
-#[async_trait]
 pub trait Judge: Send + Sync {
     /// Score how well `candidate` preserves the facts/constraints of `original`.
     ///
@@ -43,8 +41,8 @@ pub fn parse_score(s: &str) -> Option<u8> {
 /// real omissions. Treat the score as a coarse regression signal, not a
 /// quality guarantee.
 pub async fn roundtrip_fidelity(
-    translator: &dyn Translator,
-    judge: &dyn Judge,
+    translator: &AnyTranslator,
+    judge: &impl Judge,
     original_en: &str,
     zh_prompt: &str,
 ) -> Option<u8> {
@@ -150,7 +148,6 @@ impl OllamaJudge {
     }
 }
 
-#[async_trait]
 impl Judge for OllamaJudge {
     async fn score(&self, original: &str, candidate: &str) -> Result<u8> {
         let user = format!("ORIGINAL:\n{original}\n\nCANDIDATE:\n{candidate}");

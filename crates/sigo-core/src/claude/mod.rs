@@ -9,7 +9,6 @@
 //! | [`ClaudeCodeBackend`] | Local `claude` CLI process (Claude Code) |
 //! | [`FakeBackend`] | Test/bench stub with scripted responses |
 
-use async_trait::async_trait;
 use futures::stream::BoxStream;
 
 use crate::conversation::{Conversation, Usage};
@@ -40,7 +39,9 @@ pub enum ResponseChunk {
 ///
 /// Implementations handle the transport (HTTPS or sub-process), authentication,
 /// and SSE/NDJSON parsing.
-#[async_trait]
+///
+/// This trait uses native `async fn` (RPITIT, stable since Rust 1.75). It is NOT
+/// dyn-compatible; use [`AnyClaudeBackend`] for dynamic dispatch.
 pub trait ClaudeBackend: Send + Sync {
     /// Stream a turn. `convo` already contains prior history; `prompt` is the new user turn.
     async fn stream_turn(
@@ -50,8 +51,35 @@ pub trait ClaudeBackend: Send + Sync {
     ) -> Result<BoxStream<'static, Result<ResponseChunk>>>;
 }
 
+/// Runtime-safe enum over all [`ClaudeBackend`] implementations.
+///
+/// Prefer this over `Arc<dyn ClaudeBackend>`: it enables native async dispatch
+/// (no boxing, no vtable) and the set of backends is closed / checked at compile time.
+#[derive(Debug, Clone)]
+pub enum AnyClaudeBackend {
+    /// Anthropic Messages API via HTTPS.
+    Api(ApiBackend),
+    /// Local `claude` CLI process (Claude Code).
+    ClaudeCode(ClaudeCodeBackend),
+    /// Test/bench stub with scripted responses.
+    Fake(FakeBackend),
+}
+
+impl ClaudeBackend for AnyClaudeBackend {
+    async fn stream_turn(
+        &self,
+        convo: &Conversation,
+        prompt: &str,
+    ) -> Result<BoxStream<'static, Result<ResponseChunk>>> {
+        match self {
+            Self::Api(inner) => inner.stream_turn(convo, prompt).await,
+            Self::ClaudeCode(inner) => inner.stream_turn(convo, prompt).await,
+            Self::Fake(inner) => inner.stream_turn(convo, prompt).await,
+        }
+    }
+}
+
 pub use api::ApiBackend;
 #[doc(inline)]
 pub use claude_code::ClaudeCodeBackend;
-#[doc(inline)]
 pub use fakes::{FakeBackend, ScriptedItem};
