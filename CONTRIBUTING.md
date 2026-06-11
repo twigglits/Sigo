@@ -6,6 +6,7 @@
 git clone https://github.com/twigglits/Sigo && cd Sigo
 cp .env.example .env               # add your ANTHROPIC_API_KEY
 cargo build --workspace
+git config core.hooksPath .githooks  # install pre-commit formatting hook
 ```
 
 ## Development workflow

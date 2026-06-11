@@ -1,0 +1,22 @@
+#!/bin/sh
+# Pre-commit hook — reject commit if Rust formatting is not clean.
+# Installed by pointing `core.hooksPath` at this directory:
+#   git config core.hooksPath .githooks
+
+set -eu
+
+# Only run if this is a Rust workspace (has Cargo.toml at root or in subdirs).
+if [ ! -f Cargo.toml ]; then
+    exec git diff --quiet  # pass through silently
+fi
+
+echo "🔍 Checking Rust formatting..."
+
+if ! cargo fmt --all -- --check 2>/dev/null; then
+    echo ""
+    echo "❌ Formatting check failed. Run 'cargo fmt --all' to fix, then commit again."
+    echo ""
+    exit 1
+fi
+
+echo "✅ Rust formatting is clean."
