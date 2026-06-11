@@ -7,10 +7,10 @@ use std::time::Duration;
 
 use sigo_core::{
     build_csv, build_eval_csv, build_eval_markdown, build_markdown, evaluate_answer,
-    load_coding_corpus, load_corpus, roundtrip_fidelity, summarize_eval, summarize_run, ArmCost,
-    AnyClaudeBackend, AnyTranslator, ArmEval, BackendKind, BenchmarkSink, ControlMode, CorpusEntry,
-    JsonlSink, OllamaJudge, OllamaTranslator, Orchestrator, OrchestratorConfig, OutputSink,
-    RunReport, SigoConfig, TaskEval, Tokenizer, TokenizerProxy, TurnRecord,
+    load_coding_corpus, load_corpus, roundtrip_fidelity, summarize_eval, summarize_run,
+    AnyClaudeBackend, AnyTranslator, ArmCost, ArmEval, BackendKind, BenchmarkSink, ControlMode,
+    CorpusEntry, JsonlSink, OllamaJudge, OllamaTranslator, Orchestrator, OrchestratorConfig,
+    OutputSink, RunReport, SigoConfig, TaskEval, Tokenizer, TokenizerProxy, TurnRecord,
 };
 
 use crate::repl::build_backend;
@@ -454,13 +454,8 @@ async fn run_coding_eval(
             })
             .unwrap_or_default();
 
-        let fidelity = roundtrip_fidelity(
-            &translator,
-            &judge,
-            &task.prompt,
-            &record.chinese_prompt,
-        )
-        .await;
+        let fidelity =
+            roundtrip_fidelity(&translator, &judge, &task.prompt, &record.chinese_prompt).await;
 
         eprintln!(
             "[{}/{}] {} · en={} zh={} · zh-in={} en-in={}",

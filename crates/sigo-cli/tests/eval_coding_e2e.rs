@@ -94,7 +94,9 @@ async fn eval_mode_writes_report_with_fakes() {
     use sigo_cli::commands::bench_run::{
         run_with_builders, BackendBuilder, RunOptions, TranslatorBuilder,
     };
-    use sigo_core::{AnyClaudeBackend, AnyTranslator, FakeBackend, FakeTranslator, SigoConfig, Usage};
+    use sigo_core::{
+        AnyClaudeBackend, AnyTranslator, FakeBackend, FakeTranslator, SigoConfig, Usage,
+    };
     use std::sync::Arc;
     use tempfile::TempDir;
 
@@ -181,8 +183,8 @@ async fn eval_mode_writes_report_with_fakes() {
     let translator_builder: TranslatorBuilder =
         Arc::new(move || AnyTranslator::Fake(translator_clone.clone()));
 
-        let backend_builder: BackendBuilder =
-            Arc::new(move || Ok(AnyClaudeBackend::Fake(backend_clone.clone())));
+    let backend_builder: BackendBuilder =
+        Arc::new(move || Ok(AnyClaudeBackend::Fake(backend_clone.clone())));
     // ── Config ───────────────────────────────────────────────────────────────
     let mut cfg = SigoConfig::default();
     cfg.benchmark.log_path = Some(jsonl.clone());
