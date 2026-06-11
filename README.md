@@ -69,11 +69,12 @@ sigo doctor      # verifies Ollama, the model, your Claude auth, the tokenizer, 
 
 Two-crate Cargo workspace:
 
-- `crates/sigo-core` — library: traits (`Translator`, `ClaudeBackend`, `Tokenizer`,
-  `BenchmarkSink`), the per-turn orchestrator, the sentence-buffer streaming
-  transformer, the ZH whitespace compactor (`compact.rs`), the code-masking
-  layer that keeps code out of the local model's hands (`translator/mask.rs`),
-  and concrete adapters.
+- `crates/sigo-core` — library: native-async traits (`Translator`, `ClaudeBackend`,
+  `Tokenizer`, `BenchmarkSink`), enum dispatch (`AnyTranslator`, `AnyClaudeBackend`)
+  for runtime-switchable backends without `dyn` (enables RPITIT), the per-turn
+  orchestrator, the sentence-buffer streaming transformer, the ZH whitespace
+  compactor (`compact.rs`), the code-masking layer that keeps code out of the
+  local model's hands (`translator/mask.rs`), and concrete adapters.
 - `crates/sigo-cli` — binary: the `clap` CLI, the `rustyline` REPL, the one-shot
   `chat` command, config loading (files + `SIGO_*` env), and the `bench` / `doctor`
   subcommands.
