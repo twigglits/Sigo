@@ -20,6 +20,8 @@ pub mod api;
 pub mod claude_code;
 /// Test/bench stub with scripted responses.
 pub mod fakes;
+/// AskUserQuestion passthrough types + stream-json control protocol.
+pub mod question;
 
 /// One event from the Claude stream.
 #[derive(Debug, Clone)]
@@ -83,3 +85,4 @@ pub use api::ApiBackend;
 #[doc(inline)]
 pub use claude_code::ClaudeCodeBackend;
 pub use fakes::{FakeBackend, ScriptedItem};
+pub use question::{AskOption, AskQuestion, QuestionAnswer, QuestionReply, QuestionRequest};

@@ -51,8 +51,8 @@ pub use benchmark::{
 };
 /// Claude backend re-exports.
 pub use claude::{
-    AnyClaudeBackend, ApiBackend, ClaudeBackend, ClaudeCodeBackend, FakeBackend, ResponseChunk,
-    ScriptedItem,
+    AnyClaudeBackend, ApiBackend, AskOption, AskQuestion, ClaudeBackend, ClaudeCodeBackend,
+    FakeBackend, QuestionAnswer, QuestionReply, QuestionRequest, ResponseChunk, ScriptedItem,
 };
 /// Chinese text compaction.
 pub use compact::compact_zh;
