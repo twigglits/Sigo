@@ -94,6 +94,7 @@ after CLI flags) — convenient for containers:
 | `SIGO_CLAUDE_BACKEND`      | `claude.backend`         |
 | `SIGO_CLAUDE_MODEL`        | `claude.model`           |
 | `SIGO_CLAUDE_MAX_TOKENS`   | `claude.max_tokens`      |
+| `SIGO_CLAUDE_CODE_INTERACTIVE` | `claude.claude_code.interactive` |
 | `SIGO_CONTROL_MODE`        | `benchmark.control_mode` |
 | `SIGO_LOG_PATH`            | `benchmark.log_path`     |
 
@@ -178,6 +179,47 @@ sigo bench run --eval coding --corpus my_humaneval.jsonl  # custom HumanEval-for
 - `/model translator <name>` / `/model claude <name>` — hot-swap models
 - `/backend <api|claude-code>` — hot-swap backend
 - `/bench` — quick summary of the current session
+
+### Interactive questions (claude-code backend)
+
+With the `claude-code` backend, Claude Code sometimes needs to ask *you*
+something mid-task — a clarification with multiple-choice options (its
+`AskUserQuestion` tool). In plain headless mode those questions are silently
+auto-denied; the Sigo REPL instead passes them through the same translation
+SOP as everything else:
+
+1. The REPL runs one long-lived `claude` process per session
+   (`--input-format stream-json --permission-prompt-tool stdio`), the only
+   mode in which a pending question can be answered *mid-turn* rather than
+   dying with the process.
+2. The question, header, option labels, and descriptions (Chinese — the
+   conversation is Chinese) are translated ZH→EN by the local translator and
+   shown as a numbered picker. A field that fails to translate is shown as
+   raw Chinese: display degrades, it never blocks.
+3. Picker input: a number picks an option, `1,3` answers a multi-select, any
+   other text is a free-text answer, `skip` (or Ctrl-D) declines. A picked
+   option is echoed back as the model's own **original Chinese label**
+   (byte-for-byte, as the protocol requires — nothing is lost in
+   translation). Free text is sanitized and translated EN→ZH like any
+   outbound prompt; if that translation fails, the question is declined with
+   a visible error — the outbound direction never degrades silently.
+4. Claude continues the same turn with your answers. Token accounting is
+   unchanged, and the long-lived process preserves the CLI's prompt cache
+   across turns.
+
+On by default; disable with `claude.claude_code.interactive = false` (or
+`SIGO_CLAUDE_CODE_INTERACTIVE=false`). One-shot `sigo chat`, `bench run`, and
+the coding eval never attach the picker, so they keep the exact historic
+per-turn behavior (questions auto-denied) and benchmark comparability.
+
+Caveats: other tools (Bash, Edit, …) requesting permission are denied,
+preserving headless semantics — pre-approve via `extra_args` if you want
+tools, noting `--dangerously-skip-permissions` bypasses the question prompt
+too. `control-mode full` cannot run its parallel English turn on the
+one-turn-at-a-time interactive process (Sigo warns). The protocol was
+captured live against claude CLI 2.1.173; `--permission-prompt-tool stdio`
+is the same (hidden) flag the official Agent SDK uses — if a future CLI
+changes it, set `interactive = false` to fall back.
 
 ## Token minimization — and what is honestly known
 
@@ -341,10 +383,14 @@ state machine, the whitespace compactor (golden adversarial corpus: unfenced
 indented Python, markdown markers, quoted CJK literals, URL/path boundaries,
 idempotency, tokens-never-increase), the code-masking roundtrip, the
 translate-not-answer request shape, the Anthropic SSE event parser, the Claude
-Code NDJSON parser, the orchestrator pipeline (happy path + full control mode
-+ compaction guard + raw-assistant-history invariant), the JSONL sink
-roundtrip, and the bench summary aggregation (which reports raw counts without
-inventing an estimate).
+Code NDJSON parser, the AskUserQuestion control-protocol round-trip (a
+scripted fake `claude` exercises mid-turn answering, decline/deny paths,
+cancellation, crash respawn with `--resume`, and session reset), the question
+picker input grammar, the question bridge's translation SOP (original-label
+echo, sanitize-then-translate free text), the orchestrator pipeline (happy
+path + full control mode + compaction guard + raw-assistant-history
+invariant), the JSONL sink roundtrip, and the bench summary aggregation (which
+reports raw counts without inventing an estimate).
 
 Live tests against real Ollama + real Anthropic API are gated behind
 `--features live` and are not run by default:

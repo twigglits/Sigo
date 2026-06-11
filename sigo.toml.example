@@ -16,6 +16,7 @@ max_tokens = 4096
 [claude.claude_code]
 binary = "claude"
 extra_args = []
+interactive = true         # REPL: answer Claude Code's clarification questions via a translated picker
 
 [benchmark]
 control_mode = "prompt-only"   # off | prompt-only | full
