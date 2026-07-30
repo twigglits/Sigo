@@ -62,7 +62,7 @@ jobs:
           esac
       - uses: dtolnay/rust-toolchain@stable
         if: ${{ steps.next.outputs.skip != 'true' }}
-      - uses: taiki-e/install-action@v2
+      - uses: taiki-e/install-action@v2.85.2
         if: ${{ steps.next.outputs.skip != 'true' }}
         with:
           tool: cargo-edit
