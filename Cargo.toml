@@ -32,7 +32,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
-dirs = "6"
+dirs = "7"
 insta = { version = "1", features = ["json"] }
 
 # Thin LTO + a single codegen unit shrink and speed up the shipped binary (incl. the
